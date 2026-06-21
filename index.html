@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Commander Cosmo — Galactic Pogo Patrol</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #05060d;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+  #game {
+    display: block; position: absolute; top: 0; left: 0;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    background: #05060d;
+  }
+  #loading {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; color: #3fae57;
+    font-size: 14px; gap: 14px; z-index: 10; text-align: center;
+  }
+  #loading .sub { color: #7be39a; font-size: 9px; }
+  /* on-screen touch controls (mobile) */
+  #touch {
+    position: absolute; inset: 0; display: none; z-index: 5;
+    pointer-events: none; justify-content: space-between; align-items: flex-end;
+    padding: 0 14px 22px;
+  }
+  #touch .pad, #touch .acts { display: flex; gap: 12px; pointer-events: auto; }
+  #touch button {
+    width: 58px; height: 58px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.4);
+    background: rgba(20,30,50,0.5); color: #fff;
+    font-family: inherit; font-size: 9px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #touch button:active { background: rgba(60,120,90,0.7); }
+</style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="loading">
+    COMMANDER COSMO
+    <div class="sub">loading… (click or press a key for sound)</div>
+  </div>
+  <div id="touch">
+    <div class="pad">
+      <button id="btn-left">◀</button>
+      <button id="btn-right">▶</button>
+    </div>
+    <div class="acts">
+      <button id="btn-pogo">POGO</button>
+      <button id="btn-shoot">FIRE</button>
+      <button id="btn-jump">JUMP</button>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# clasp / Apps Script project (not needed for GitHub Pages)
+appsscript/
+build-inline.js
+*.png
