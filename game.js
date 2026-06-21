@@ -43,20 +43,21 @@ bx.imageSmoothingEnabled = false;
 let view = { x: 0, y: 0, w: W, h: H, scale: 1 };
 
 function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // Work entirely in DEVICE pixels with an INTEGER scale so every source pixel maps
+  // to exactly `scale` device pixels — perfectly crisp, no fractional-upscale blur.
+  const dpr = window.devicePixelRatio || 1;
   const ww = window.innerWidth, wh = window.innerHeight;
   canvas.style.width = ww + 'px';
   canvas.style.height = wh + 'px';
-  canvas.width = Math.floor(ww * dpr);
-  canvas.height = Math.floor(wh * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const dw = Math.round(ww * dpr), dh = Math.round(wh * dpr);
+  canvas.width = dw; canvas.height = dh;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);   // identity: draw in device pixels
   ctx.imageSmoothingEnabled = false;
-  let scale = Math.min(ww / W, wh / H);
-  scale = Math.max(1, Math.floor(scale * 2) / 2); // allow half-steps, crisp-ish
+  const scale = Math.max(1, Math.floor(Math.min(dw / W, dh / H)));
   view.scale = scale;
   view.w = W * scale; view.h = H * scale;
-  view.x = Math.floor((ww - view.w) / 2);
-  view.y = Math.floor((wh - view.h) / 2);
+  view.x = Math.floor((dw - view.w) / 2);
+  view.y = Math.floor((dh - view.h) / 2);
 }
 window.addEventListener('resize', resize);
 
@@ -186,11 +187,21 @@ const SFX = {
 const Music = (function () {
   // semitone -> freq (A4 = 440 = midi 69)
   const f = m => 440 * Math.pow(2, (m - 69) / 12);
-  // a bouncy heroic loop (midi notes), -1 = rest
-  const lead = [69,71,72,74, 76,74,72,71, 69,72,76,79, 76,72,69,67,
-                65,67,69,71, 72,71,69,67, 65,67,69,72, 71,-1,-1,-1];
-  const bass = [45,45,52,52, 48,48,55,55, 41,41,48,48, 43,43,50,50,
-                45,45,52,52, 48,48,55,55, 41,41,48,48, 43,50,55,57];
+  // Two original loops (midi notes, -1 = rest); the scheduler picks by game state.
+  const SONGS = {
+    level: {  // bouncy, heroic — plays during levels
+      lead: [69,71,72,74, 76,74,72,71, 69,72,76,79, 76,72,69,67,
+             65,67,69,71, 72,71,69,67, 65,67,69,72, 71,-1,-1,-1],
+      bass: [45,45,52,52, 48,48,55,55, 41,41,48,48, 43,43,50,50,
+             45,45,52,52, 48,48,55,55, 41,41,48,48, 43,50,55,57],
+    },
+    map: {    // calmer, wandering — plays on the overworld
+      lead: [64,-1,67,-1, 69,-1,67,64, 62,-1,64,-1, 67,-1,-1,-1,
+             65,-1,69,-1, 72,-1,69,65, 64,-1,67,-1, 64,-1,-1,-1],
+      bass: [40,40,47,47, 45,45,52,52, 38,38,45,45, 43,43,47,47,
+             40,40,47,47, 45,45,52,52, 38,38,45,45, 43,47,52,52],
+    },
+  };
   const step = 0.16;            // seconds per 1/8 note
   let i = 0, nextT = 0, timer = null, running = false;
 
@@ -208,11 +219,12 @@ const Music = (function () {
   }
   function tick() {
     if (!running || !audioReady) return;
+    const song = (typeof Game !== 'undefined' && Game.state === 'worldmap') ? SONGS.map : SONGS.level;
     const ahead = actx.currentTime + 0.2;
     while (nextT < ahead) {
       if (musicOn) {
-        scheduleNote(lead, i, nextT, 'square', 0.16, musicGain);
-        if (i % 2 === 0) scheduleNote(bass, i, nextT, 'triangle', 0.22, musicGain);
+        scheduleNote(song.lead, i, nextT, 'square', 0.15, musicGain);
+        if (i % 2 === 0) scheduleNote(song.bass, i, nextT, 'triangle', 0.22, musicGain);
       }
       nextT += step; i++;
     }
@@ -355,6 +367,18 @@ function bakeAll() {
     if (fr === 0){ P(g,1,2,4,2,EGA.white); P(g,11,2,4,2,EGA.white); }
     else { P(g,1,5,4,2,EGA.white); P(g,11,5,4,2,EGA.white); }
     SPR['flyer_'+fr+'_R'] = c; SPR['flyer_'+fr+'_L'] = flip(c);
+  }
+
+  // Hopper (EGA cyan spring-frog) — fr0 crouched, fr1 legs-out (mid-hop)
+  for (const fr of [0, 1]) {
+    const c = newSprite(16, 14); const g = c.getContext('2d');
+    P(g,3,4,10,7,EGA.cyan); P(g,3,4,10,1,EGA.bcyan); P(g,3,10,10,1,EGA.blue);
+    P(g,4,2,8,3,EGA.cyan);
+    P(g,4,2,3,3,EGA.white); P(g,9,2,3,3,EGA.white);
+    P(g,5,3,2,2,EGA.black); P(g,10,3,2,2,EGA.black);
+    if (fr === 0){ P(g,2,11,4,3,EGA.cyan); P(g,10,11,4,3,EGA.cyan); }
+    else { P(g,1,9,3,4,EGA.bcyan); P(g,12,9,3,4,EGA.bcyan); }
+    SPR['hopper_'+fr+'_R'] = c; SPR['hopper_'+fr+'_L'] = flip(c);
   }
 
   // gem (EGA cyan crystal) — animated shimmer handled at draw
@@ -557,6 +581,98 @@ function buildLevels() {
     L.push(m);
   }
 
+  /* ---- Level 4: Tangled Thicket (surface, hoppers + a homing flyer) ---- */
+  {
+    const cols = 96;
+    const m = makeLevel(cols, 'surface', 'Tangled Thicket', 'Hoppers leap — time your shots.');
+    m.ground(0, 30, 11);
+    m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'o');
+    m.put(9,10,'j');
+    m.plat(12,8,3); m.put(13,7,'o');
+    m.put(15,10,'y');
+    m.block(19,9,1,2); m.put(19,8,'o');
+    m.put(22,10,'j'); m.put(26,10,'b');
+    m.plat(24,7,3); m.put(25,6,'G');
+    m.spikes(29,10,2);
+    m.ground(34, 53, 11);                 // 3-tile pit 31-33
+    m.put(36,10,'j'); m.put(41,10,'b'); m.put(45,10,'y');
+    m.plat(38,8,3); m.put(39,7,'o');
+    m.put(43,10,'a');
+    m.plat(48,7,4); m.put(49,6,'o'); m.put(50,6,'o');
+    m.put(52,10,'F');
+    m.ground(57, 76, 11);                 // 3-tile pit 54-56
+    m.put(59,10,'b'); m.put(63,10,'j'); m.put(68,10,'F');
+    m.block(61,9,1,2); m.block(65,9,1,2); m.put(65,8,'G');
+    m.put(71,10,'a'); m.put(72,10,'h');
+    m.spikes(74,10,2);
+    m.ground(79, cols-1, 11);             // 2-tile pit 77-78
+    m.put(81,10,'j'); m.put(85,10,'b'); m.put(89,10,'F');
+    m.plat(82,8,3); m.put(83,7,'o');
+    m.put(91,10,'o'); m.put(92,10,'o');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
+  /* ---- Level 5: Deep Hollows (cavern, vertical climb + flyer swarm) ---- */
+  {
+    const cols = 104;
+    const m = makeLevel(cols, 'cavern', 'Deep Hollows', 'Climb past the swarm. Watch your footing.');
+    m.ground(0, 12, 11);
+    m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'a');
+    m.put(9,10,'j');
+    m.plat(13,9,3); m.plat(17,7,3); m.plat(21,5,3);   // climb over the chasm 13-23
+    m.put(14,8,'o'); m.put(18,6,'o'); m.put(22,4,'G');
+    m.ground(24, 40, 11);
+    m.put(27,10,'F'); m.put(31,10,'j'); m.put(35,10,'b');
+    m.plat(28,8,2); m.put(28,7,'o');
+    m.spikes(33,10,2);
+    m.block(38,9,1,2); m.put(38,8,'o');
+    m.ground(44, 62, 11);                 // 3-tile pit 41-43
+    m.put(46,10,'j'); m.put(50,10,'F'); m.put(55,10,'b'); m.put(59,10,'F');
+    m.plat(47,7,3); m.put(48,6,'G');
+    m.block(52,9,1,2); m.spikes(57,10,2);
+    m.put(61,10,'a');
+    m.ground(66, 84, 11);                 // 3-tile pit 63-65
+    m.put(68,10,'b'); m.put(72,10,'j'); m.put(76,10,'F'); m.put(80,10,'b');
+    m.plat(69,8,3); m.put(70,7,'o'); m.plat(74,6,3); m.put(75,5,'G');
+    m.put(82,10,'h'); m.spikes(78,10,2);
+    m.ground(87, cols-1, 11);             // 2-tile pit 85-86
+    m.put(89,10,'F'); m.put(93,10,'j'); m.put(97,10,'b');
+    m.plat(90,8,3); m.put(91,7,'o');
+    m.put(99,10,'o'); m.put(100,10,'o');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
+  /* ---- Level 6: The Core (fortress, the gauntlet) ---- */
+  {
+    const cols = 112;
+    const m = makeLevel(cols, 'fortress', 'The Core', 'Everything at once. Good luck, Commander.');
+    m.ground(0, 14, 11);
+    m.put(2,10,'P'); m.put(4,10,'a'); m.put(5,10,'a');
+    m.put(8,10,'b'); m.spikes(10,10,2); m.put(13,10,'j');
+    m.ground(18, 36, 11);                 // 3-tile pit 15-17
+    m.put(20,10,'b'); m.put(24,10,'F'); m.put(28,10,'j'); m.put(32,10,'b');
+    m.plat(21,8,2); m.put(21,7,'o'); m.plat(25,7,3); m.put(26,6,'G');
+    m.block(30,9,1,2); m.spikes(34,10,2);
+    m.ground(40, 60, 11);                 // 3-tile pit 37-39
+    m.put(42,10,'j'); m.put(45,10,'b'); m.put(49,10,'F'); m.put(53,10,'b'); m.put(57,10,'F');
+    m.plat(43,8,3); m.put(44,7,'o');
+    m.block(47,9,1,2); m.put(47,8,'o');
+    m.plat(51,6,3); m.put(52,5,'G');
+    m.put(59,10,'a');
+    m.ground(64, 86, 11);                 // 3-tile pit 61-63
+    m.put(66,10,'b'); m.put(70,10,'j'); m.put(74,10,'F'); m.put(78,10,'b'); m.put(82,10,'F');
+    m.plat(67,8,3); m.put(68,7,'o'); m.plat(76,7,3); m.put(77,6,'G');
+    m.block(72,9,1,2); m.put(84,10,'h'); m.spikes(80,10,2);
+    m.ground(89, cols-1, 11);             // 2-tile pit 87-88
+    m.put(91,10,'F'); m.put(95,10,'b'); m.put(99,10,'j'); m.put(103,10,'F');
+    m.plat(92,8,3); m.put(93,7,'o');
+    m.put(105,10,'o'); m.put(106,10,'o'); m.put(108,10,'a');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
   return L;
 }
 
@@ -564,9 +680,18 @@ function buildLevels() {
 function makeEnemy(type, c, r) {
   const base = { type, dead:false, dyTimer:0, anim:0, dir: -1, sc:c, sr:r };
   if (type === 'yorp') return Object.assign(base, { x:c*16+1, y:r*16+2, w:14, h:12, vx:0, vy:0, speed:26, hp:1, fly:false });
-  if (type === 'bloog') return Object.assign(base, { x:c*16+1, y:r*16+2, w:14, h:12, vx:0, vy:0, speed:52, hp:1, fly:false });
-  if (type === 'flyer') return Object.assign(base, { x:c*16, y:r*16, w:14, h:10, vx:0, vy:0, speed:40, hp:1, fly:true, homeY:r*16 - 16, wasBlocked:false, t:Math.random()*6 });
+  if (type === 'bloog') return Object.assign(base, { x:c*16+1, y:r*16+2, w:14, h:12, vx:0, vy:0, speed:50, hp:1, fly:false, charge:true });
+  if (type === 'flyer') return Object.assign(base, { x:c*16, y:r*16, w:14, h:10, vx:0, vy:0, speed:42, hp:1, fly:true, homing:false, homeY:r*16 - 16, wasBlocked:false, t:Math.random()*6 });
+  if (type === 'hopper') return Object.assign(base, { x:c*16+1, y:r*16+2, w:14, h:13, vx:0, vy:0, speed:0, hp:1, fly:false, hop:true, onGround:false, hopTimer:0.4 + Math.random()*0.8 });
   return base;
+}
+// Map a level-grid char to an enemy ('y' yorp, 'b' bloog, 'f' flyer, 'F' homing flyer, 'j' hopper)
+const isEnemyChar = ch => ch==='y'||ch==='b'||ch==='f'||ch==='F'||ch==='j';
+function enemyFromChar(ch, c, r) {
+  const type = ch==='y'?'yorp':ch==='b'?'bloog':ch==='j'?'hopper':'flyer';
+  const en = makeEnemy(type, c, r);
+  if (ch === 'F') en.homing = true;
+  return en;
 }
 
 /* --------------------------- GAME STATE ---------------------------- */
@@ -617,8 +742,8 @@ function loadLevel(idx) {
     for (let c = 0; c < lvl.cols; c++) {
       const ch = Game.grid[r][c];
       if (ch === 'P') { start = { x: c*16, y: r*16 }; Game.grid[r][c] = ' '; }
-      else if (ch === 'y' || ch === 'b' || ch === 'f') {
-        Game.enemies.push(makeEnemy(ch==='y'?'yorp':ch==='b'?'bloog':'flyer', c, r));
+      else if (isEnemyChar(ch)) {
+        Game.enemies.push(enemyFromChar(ch, c, r));
         Game.grid[r][c] = ' ';
       } else if (ch === 'o' || ch === 'G' || ch === 'a' || ch === 'h') {
         const kind = ch==='o'?'gem':ch==='G'?'biggem':ch==='a'?'ammo':'life';
@@ -645,9 +770,10 @@ function enterLevelCard() { Game.state = 'levelcard'; Game.timer = 1.8; }
 
 /* ---- Overworld map: walk between level nodes, enter to play ---- */
 function buildWorldMap() {
-  const pts = [[58,150],[160,104],[262,150],[120,150],[210,104]]; // fixed path positions
+  const n = Game.levels.length, x0 = 42, x1 = W - 42;
   const nodes = Game.levels.map((lvl, i) => ({
-    x: pts[i] ? pts[i][0] : 40 + i*70, y: pts[i] ? pts[i][1] : 140,
+    x: Math.round(n > 1 ? x0 + (i/(n-1))*(x1-x0) : (x0+x1)/2),
+    y: 150 - (i % 2) * 46,                  // zigzag path
     name: lvl.name, theme: lvl.theme
   }));
   Game.map = {
@@ -693,8 +819,8 @@ function loadEnemiesOnly() {
   Game.enemies = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < lvl.cols; c++) {
     const ch = lvl.g[r][c];
-    if ((ch === 'y' || ch === 'b' || ch === 'f') && !Game.defeated.has(c + ',' + r))
-      Game.enemies.push(makeEnemy(ch==='y'?'yorp':ch==='b'?'bloog':'flyer', c, r));
+    if (isEnemyChar(ch) && !Game.defeated.has(c + ',' + r))
+      Game.enemies.push(enemyFromChar(ch, c, r));
   }
 }
 
@@ -860,26 +986,58 @@ function updatePlay(dt) {
     e.anim += dt * 6;
     if (e.fly) {
       e.t += dt;
-      e.x += e.dir * e.speed * dt;
-      e.y = e.homeY + Math.sin(e.t * 2.4) * 16;
-      // bounce off solid wall columns only — sample a FIXED reference height (not the
-      // animated y), and edge-trigger so the flyer can't oscillate against a wall/floor.
-      const rr = Math.floor((e.homeY + e.h/2) / 16);
-      const cc = Math.floor((e.dir > 0 ? e.x + e.w : e.x) / 16);
-      const blocked = isSolid(tileAt(cc, rr)) || e.x < 0 || e.x > Game.cols*16 - e.w;
-      if (blocked && !e.wasBlocked) e.dir *= -1;
-      e.wasBlocked = blocked;
-    } else {
+      if (e.homing) {
+        // gentle aerial pursuit — drift toward the player in x and y with a soft bob
+        e.dir = (p.x + p.w/2 >= e.x + e.w/2) ? 1 : -1;
+        const nx = e.x + e.dir * e.speed * dt;
+        const ncx = Math.floor((nx + e.w/2)/16), rr = Math.floor((e.homeY + e.h/2)/16);
+        if (!isSolid(tileAt(ncx, rr)) && nx > 0 && nx < Game.cols*16 - e.w) e.x = nx;
+        const ty = clamp(p.y - 4, 8, (ROWS-3)*16);
+        e.homeY += Math.sign(ty - e.homeY) * (e.speed * 0.6) * dt;
+        e.y = e.homeY + Math.sin(e.t * 3) * 5;
+      } else {
+        // bob + patrol; edge-triggered wall bounce at a FIXED reference height
+        e.x += e.dir * e.speed * dt;
+        e.y = e.homeY + Math.sin(e.t * 2.4) * 16;
+        const rr = Math.floor((e.homeY + e.h/2) / 16);
+        const cc = Math.floor((e.dir > 0 ? e.x + e.w : e.x) / 16);
+        const blocked = isSolid(tileAt(cc, rr)) || e.x < 0 || e.x > Game.cols*16 - e.w;
+        if (blocked && !e.wasBlocked) e.dir *= -1;
+        e.wasBlocked = blocked;
+      }
+    } else if (e.hop) {
+      // grounded creature that leaps in arcs; turns at walls and ledges
       e.vy += GRAV * dt; if (e.vy > MAX_FALL) e.vy = MAX_FALL;
-      e.vx = e.dir * e.speed;
+      if (e.onGround) {
+        e.vx = 0; e.hopTimer -= dt;
+        if (e.hopTimer <= 0) { e.vy = -300; e.vx = e.dir * 72; e.hopTimer = 0.7 + Math.random()*0.9; }
+      }
+      moveX(e);
+      if (e.hitWall) { e.dir *= -1; e.vx = e.dir * Math.abs(e.vx); }
+      moveY(e);
+      if (e.onGround) {
+        const aheadC = e.dir > 0 ? Math.floor((e.x+e.w+1)/16) : Math.floor((e.x-1)/16);
+        const footR = Math.floor((e.y+e.h+1)/16);
+        if (!isSolid(tileAt(aheadC, footR)) && !isOneway(tileAt(aheadC, footR))) e.dir *= -1;
+      }
+    } else {
+      // ground walker; "charge" types speed up + steer toward a nearby same-height player
+      e.vy += GRAV * dt; if (e.vy > MAX_FALL) e.vy = MAX_FALL;
+      let spd = e.speed;
+      if (e.charge) {
+        const dx = Math.abs((p.x+p.w/2) - (e.x+e.w/2));
+        const sameRow = Math.abs((p.y + p.h) - (e.y + e.h)) < 22;
+        if (dx < 88 && sameRow) { spd = e.speed * 1.7; e.dir = ((p.x+p.w/2) >= (e.x+e.w/2)) ? 1 : -1; }
+      }
+      e.vx = e.dir * spd;
       moveX(e);
       if (e.hitWall) e.dir *= -1;
       moveY(e);
-      // edge detection: if no ground ahead, turn
       const aheadC = e.dir > 0 ? Math.floor((e.x+e.w+1)/16) : Math.floor((e.x-1)/16);
       const footR = Math.floor((e.y+e.h+1)/16);
       if (e.onGround && !isSolid(tileAt(aheadC, footR)) && !isOneway(tileAt(aheadC, footR))) e.dir *= -1;
     }
+    if (!e.fly && e.y > (ROWS + 2) * 16) { e.dead = true; e.dyTimer = 0; }   // fell in a pit
     // shot collision
     for (const s of Game.shots) {
       if (s.life > 0 && aabb(s, e)) {
@@ -1059,7 +1217,7 @@ function drawWorld() {
       bx.fillStyle = '#fff'; bx.fillRect(sx, sy+e.h-3, e.w, 3); bx.globalAlpha = 1;
       continue;
     }
-    const fr = (Math.floor(e.anim) % 2);
+    const fr = e.hop ? (e.onGround ? 0 : 1) : (Math.floor(e.anim) % 2);
     const key = e.type + '_' + fr + '_' + (e.dir>0?'R':'L');
     const spr = SPR[key];
     if (spr) bx.drawImage(spr, sx + (e.w-spr.width)/2, sy + (e.h-spr.height));
@@ -1353,9 +1511,8 @@ function render() {
   }
   bx.restore();
 
-  // blit to screen (letterboxed, integer-ish scaled, crisp)
-  const ww = window.innerWidth, wh = window.innerHeight;
-  ctx.fillStyle = '#05060d'; ctx.fillRect(0, 0, ww, wh);
+  // blit to screen (letterboxed, INTEGER-scaled in device pixels => crisp)
+  ctx.fillStyle = '#05060d'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(buf, view.x, view.y, view.w, view.h);
 }
