@@ -942,7 +942,7 @@ function buildLevels() {
     for (let r = 0; r < 11; r++) { m.put(0,r,'B'); m.put(1,r,'B'); m.put(cols-2,r,'B'); m.put(cols-1,r,'B'); }  // containment walls
     m.put(4,10,'P');
     m.plat(5,7,3); m.plat(cols-9,7,3); m.plat(12,5,5);     // cover platforms
-    m.put(7,10,'a'); m.put(22,10,'a'); m.put(14,4,'a'); m.put(19,10,'a');   // ammo refills (shoot the boss!)
+    m.put(7,10,'a'); m.put(22,10,'a'); m.put(14,4,'a'); m.put(19,10,'a'); m.put(16,10,'a'); m.put(25,10,'a');  // ammo refills (shoot the boss!)
     m.put(6,6,'o'); m.put(23,6,'o'); m.put(10,10,'h');
     m.put(13,3,'Z');                                        // the boss (no exit door — beat it to win)
     L.push(m);
@@ -1159,6 +1159,18 @@ function respawn() {
   Game.platforms = buildPlatforms(Game.levels[Game.levelIndex]);  // reset to deterministic phase
   // restore non-collected pickups? keep collected. reset enemies positions of this level:
   loadEnemiesOnly();
+  // Boss arena only: the boss resets to full HP on death, so refresh its ammo each attempt —
+  // otherwise spent ammo + a renewed boss + no exit door is a softlock. (Only the boss level
+  // has a 'Z'; normal levels keep collected pickups gone to avoid gem-farming.)
+  const lvl = Game.levels[Game.levelIndex];
+  if (Game.enemies.some(e => e.boss)) {
+    Game.pickups = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < lvl.cols; c++) {
+      const ch = lvl.g[r][c];
+      if (ch === 'o' || ch === 'G' || ch === 'a' || ch === 'h')
+        Game.pickups.push({ kind: ch==='o'?'gem':ch==='G'?'biggem':ch==='a'?'ammo':'life', x:c*16, y:r*16, w:16, h:16, t:0, taken:false });
+    }
+  }
   Game.state = 'play';
 }
 function loadEnemiesOnly() {
