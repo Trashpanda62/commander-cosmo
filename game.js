@@ -14,18 +14,18 @@ const W = VIEW_W * TILE;      // 320
 const H = VIEW_H * TILE;      // 208
 const ROWS = VIEW_H;
 
-const GRAV       = 1000;      // px/s^2
-const MAX_FALL   = 460;
-const RUN_SPEED  = 96;
-const RUN_ACCEL  = 900;
-const RUN_FRICT  = 1100;
-const JUMP_VEL   = 285;
-const JUMP_CUT   = 130;       // min upward speed when jump released
-const POGO_BOUNCE= 300;
-const POGO_SUPER = 420;
-const COYOTE     = 0.10;      // s
-const JUMP_BUF   = 0.10;      // s
-const SHOT_SPEED = 230;
+const GRAV       = 760;       // px/s^2 — lower gravity = floaty, Keen-era hang time
+const MAX_FALL   = 440;
+const RUN_SPEED  = 92;
+const RUN_ACCEL  = 820;
+const RUN_FRICT  = 1000;
+const JUMP_VEL   = 322;       // tall, floaty arc (~4.3 tiles)
+const JUMP_CUT   = 150;       // min upward speed when jump released
+const POGO_BOUNCE= 372;       // springy pogo, higher than a jump
+const POGO_SUPER = 452;       // hold jump on a bounce for a big pogo hop
+const COYOTE     = 0.11;      // s
+const JUMP_BUF   = 0.11;      // s
+const SHOT_SPEED = 240;
 const SHOT_COOL  = 0.26;
 const INVULN     = 1.4;       // s after taking a hit
 const START_LIVES= 4;
@@ -248,14 +248,21 @@ function flip(src) {
 }
 function P(g, x, y, w, h, col) { g.fillStyle = col; g.fillRect(x, y, w, h); }
 
+// Authentic EGA 16-color palette
+const EGA = {
+  black:'#000000', blue:'#0000AA', green:'#00AA00', cyan:'#00AAAA',
+  red:'#AA0000', magenta:'#AA00AA', brown:'#AA5500', lgray:'#AAAAAA',
+  dgray:'#555555', bblue:'#5555FF', bgreen:'#55FF55', bcyan:'#55FFFF',
+  bred:'#FF5555', bmagenta:'#FF55FF', yellow:'#FFFF55', white:'#FFFFFF',
+};
 const C = {
-  helmet:'#2fae57', helmetD:'#1d7e3c', helmetHi:'#7be39a',
-  skin:'#f3c08a', skinD:'#d39a63',
-  shirt:'#e0473b', shirtD:'#a82e26',
-  pants:'#2d6bd6', pantsD:'#1c4a9c',
-  shoe:'#f4f4f4', shoeD:'#b9c0c8',
-  gun:'#c9d2dc', gunD:'#828b96', gunGlow:'#ffe066',
-  eye:'#1a1a2a', mouth:'#9a4b3a',
+  helmet:EGA.bgreen, helmetD:EGA.green, helmetHi:EGA.white,
+  skin:EGA.lgray, skinD:EGA.dgray,
+  shirt:EGA.bred, shirtD:EGA.red,
+  pants:EGA.bblue, pantsD:EGA.blue,
+  shoe:EGA.white, shoeD:EGA.lgray,
+  gun:EGA.lgray, gunD:EGA.dgray, gunGlow:EGA.yellow,
+  eye:EGA.black, mouth:EGA.red,
 };
 
 /* Hero frames: 16x18, hitbox is 10x14 centered-ish.
@@ -314,85 +321,85 @@ function bakeAll() {
     SPR['hero_' + f + '_L'] = flip(SPR['hero_' + f + '_R']);
   });
 
-  // Yorp-like one-eye walker (green), 16x14
+  // One-eye walker (EGA green)
   for (const fr of [0, 1]) {
     const c = newSprite(16, 14); const g = c.getContext('2d');
-    P(g,3,2,10,9,'#36b37e'); P(g,3,2,10,1,'#76e8b6'); P(g,3,10,10,1,'#1f7d54');
-    P(g,5,1,6,2,'#36b37e');
-    P(g,6,4,5,5,'#ffffff'); P(g,8,5,2,3,'#1a1a2a'); // big eye
+    P(g,3,2,10,9,EGA.green); P(g,3,2,10,1,EGA.bgreen); P(g,3,10,10,1,EGA.green);
+    P(g,5,1,6,2,EGA.green);
+    P(g,6,4,5,5,EGA.white); P(g,8,5,2,3,EGA.black); // big eye
     // feet
-    if (fr === 0){ P(g,3,11,4,3,'#1f7d54'); P(g,9,11,4,3,'#1f7d54'); }
-    else { P(g,4,11,4,3,'#1f7d54'); P(g,8,11,4,3,'#1f7d54'); }
+    if (fr === 0){ P(g,3,11,4,3,EGA.green); P(g,9,11,4,3,EGA.green); }
+    else { P(g,4,11,4,3,EGA.green); P(g,8,11,4,3,EGA.green); }
     SPR['yorp_'+fr+'_R'] = c; SPR['yorp_'+fr+'_L'] = flip(c);
   }
 
-  // Bloog-like fast walker (purple), 16x14
+  // Fast two-eye walker (EGA magenta)
   for (const fr of [0, 1]) {
     const c = newSprite(16, 14); const g = c.getContext('2d');
-    P(g,2,3,12,8,'#9b5de5'); P(g,2,3,12,1,'#c79bff'); P(g,2,10,12,1,'#6b39b0');
-    P(g,4,1,8,3,'#9b5de5');
-    P(g,4,5,3,3,'#fff'); P(g,9,5,3,3,'#fff');
-    P(g,5,6,2,2,'#1a1a2a'); P(g,10,6,2,2,'#1a1a2a');
-    P(g,6,9,4,1,'#3a1d5e'); // mouth
-    if (fr === 0){ P(g,3,11,4,3,'#6b39b0'); P(g,9,11,4,3,'#6b39b0'); }
-    else { P(g,2,11,4,3,'#6b39b0'); P(g,10,11,4,3,'#6b39b0'); }
+    P(g,2,3,12,8,EGA.magenta); P(g,2,3,12,1,EGA.bmagenta); P(g,2,10,12,1,EGA.magenta);
+    P(g,4,1,8,3,EGA.magenta);
+    P(g,4,5,3,3,EGA.white); P(g,9,5,3,3,EGA.white);
+    P(g,5,6,2,2,EGA.black); P(g,10,6,2,2,EGA.black);
+    P(g,6,9,4,1,EGA.black); // mouth
+    if (fr === 0){ P(g,3,11,4,3,EGA.magenta); P(g,9,11,4,3,EGA.magenta); }
+    else { P(g,2,11,4,3,EGA.magenta); P(g,10,11,4,3,EGA.magenta); }
     SPR['bloog_'+fr+'_R'] = c; SPR['bloog_'+fr+'_L'] = flip(c);
   }
 
-  // Flyer drone (orange), 16x12
+  // Flyer (EGA yellow/brown bat-bot)
   for (const fr of [0, 1]) {
     const c = newSprite(16, 12); const g = c.getContext('2d');
-    P(g,5,3,6,6,'#f4a259'); P(g,5,3,6,1,'#ffd9a0'); P(g,5,8,6,1,'#c97b2f');
-    P(g,7,5,3,2,'#1a1a2a'); P(g,7,5,1,1,'#ff5555');
+    P(g,5,3,6,6,EGA.yellow); P(g,5,3,6,1,EGA.white); P(g,5,8,6,1,EGA.brown);
+    P(g,7,5,3,2,EGA.black); P(g,7,5,1,1,EGA.bred);
     // wings flap
-    if (fr === 0){ P(g,1,2,4,2,'#ffd9a0'); P(g,11,2,4,2,'#ffd9a0'); }
-    else { P(g,1,5,4,2,'#ffd9a0'); P(g,11,5,4,2,'#ffd9a0'); }
+    if (fr === 0){ P(g,1,2,4,2,EGA.white); P(g,11,2,4,2,EGA.white); }
+    else { P(g,1,5,4,2,EGA.white); P(g,11,5,4,2,EGA.white); }
     SPR['flyer_'+fr+'_R'] = c; SPR['flyer_'+fr+'_L'] = flip(c);
   }
 
-  // gem (8x8 baked into 10x10) — animated shimmer handled at draw
+  // gem (EGA cyan crystal) — animated shimmer handled at draw
   const gem = newSprite(10,10); { const g = gem.getContext('2d');
-    P(g,4,1,2,1,'#7ce7ff'); P(g,3,2,4,1,'#36c5ff'); P(g,2,3,6,2,'#0aa3e6');
-    P(g,3,5,4,2,'#0883c4'); P(g,4,7,2,1,'#066a9e'); P(g,4,2,1,3,'#bff0ff'); }
+    P(g,4,1,2,1,EGA.bcyan); P(g,3,2,4,1,EGA.bcyan); P(g,2,3,6,2,EGA.cyan);
+    P(g,3,5,4,2,EGA.cyan); P(g,4,7,2,1,EGA.cyan); P(g,4,2,1,3,EGA.white); }
   SPR.gem = gem;
 
   const big = newSprite(14,14); { const g = big.getContext('2d');
-    P(g,6,1,2,1,'#fff2a0'); P(g,4,2,6,1,'#ffd83a'); P(g,3,3,8,3,'#ffc300');
-    P(g,4,6,6,3,'#f0a800'); P(g,5,9,4,2,'#c98700'); P(g,5,3,2,4,'#fff2a0'); }
+    P(g,6,1,2,1,EGA.white); P(g,4,2,6,1,EGA.yellow); P(g,3,3,8,3,EGA.yellow);
+    P(g,4,6,6,3,EGA.brown); P(g,5,9,4,2,EGA.brown); P(g,5,3,2,4,EGA.white); }
   SPR.biggem = big;
 
   const ammo = newSprite(12,12); { const g = ammo.getContext('2d');
-    P(g,2,4,8,5,'#d9534f'); P(g,2,3,8,1,'#ff7a6e'); P(g,2,9,8,1,'#a23029');
-    P(g,4,1,4,3,'#ffe066'); P(g,5,5,2,3,'#fff'); }
+    P(g,2,4,8,5,EGA.bred); P(g,2,3,8,1,EGA.white); P(g,2,9,8,1,EGA.red);
+    P(g,4,1,4,3,EGA.yellow); P(g,5,5,2,3,EGA.white); }
   SPR.ammo = ammo;
 
   const life = newSprite(12,12); { const g = life.getContext('2d');
     // 1-up helmet token
     P(g,3,2,6,2,C.helmet); P(g,2,4,8,4,C.helmet); P(g,2,4,8,1,C.helmetHi);
-    P(g,2,8,8,1,C.helmetD); P(g,4,5,1,1,'#fff'); }
+    P(g,2,8,8,1,C.helmetD); P(g,4,5,1,1,EGA.white); }
   SPR.life = life;
 }
 
 /* heart icon for HUD */
 function drawHeart(g, x, y, full) {
-  g.fillStyle = full ? '#ff5566' : '#5a2a30';
+  g.fillStyle = full ? EGA.bred : EGA.dgray;
   g.fillRect(x+1,y,2,1); g.fillRect(x+5,y,2,1);
   g.fillRect(x,y+1,8,2); g.fillRect(x+1,y+3,6,1);
   g.fillRect(x+2,y+4,4,1); g.fillRect(x+3,y+5,2,1);
-  if (full){ g.fillStyle = '#ff99a6'; g.fillRect(x+1,y+1,2,1); }
+  if (full){ g.fillStyle = EGA.white; g.fillRect(x+1,y+1,2,1); }
 }
 
 /* --------------------------- THEMES -------------------------------- */
 const THEMES = {
-  surface: { sky:['#1b2a6b','#3a6fc4','#7bb6e8'], grass:'#3fae57', grassD:'#2c7d3e',
-             dirt:'#8a5a2b', dirtD:'#5e3c1c', block:'#7d8aa0', blockD:'#4a5468',
-             accent:'#7be39a' },
-  cavern:  { sky:['#05060f','#10142e','#1a1f44'], grass:'#5a6b8c', grassD:'#39455e',
-             dirt:'#2b3350', dirtD:'#1a2036', block:'#6a5a8c', blockD:'#3c3258',
-             accent:'#8be7ff' },
-  fortress:{ sky:['#0a0a0f','#1a1018','#2a1a22'], grass:'#7a3b3b', grassD:'#5a2828',
-             dirt:'#3a2630', dirtD:'#241620', block:'#9aa0aa', blockD:'#565c6a',
-             accent:'#ff7a6e' },
+  surface: { sky:[EGA.blue, EGA.bblue, EGA.bcyan], grass:EGA.bgreen, grassD:EGA.green,
+             dirt:EGA.brown, dirtD:EGA.black, block:EGA.lgray, blockD:EGA.dgray,
+             accent:EGA.bgreen },
+  cavern:  { sky:[EGA.black, EGA.black, EGA.blue], grass:EGA.lgray, grassD:EGA.dgray,
+             dirt:EGA.dgray, dirtD:EGA.black, block:EGA.bblue, blockD:EGA.blue,
+             accent:EGA.bcyan },
+  fortress:{ sky:[EGA.black, EGA.black, EGA.red], grass:EGA.lgray, grassD:EGA.dgray,
+             dirt:EGA.dgray, dirtD:EGA.black, block:EGA.lgray, blockD:EGA.dgray,
+             accent:EGA.bred },
 };
 
 /* parallax backdrop cache per theme */
@@ -407,23 +414,23 @@ function makeBackdrop(theme) {
   let s = theme.length * 9301 + 49297;
   const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
   if (theme === 'surface') {
-    for (let i = 0; i < 40; i++) { const x = rnd()*W, y = rnd()*60; gf.fillStyle='#ffffff'; gf.globalAlpha=0.5+rnd()*0.5; gf.fillRect(x,y,1,1); }
+    for (let i = 0; i < 40; i++) { const x = rnd()*W, y = rnd()*60; gf.fillStyle=EGA.white; gf.globalAlpha=0.5+rnd()*0.5; gf.fillRect(x,y,1,1); }
     gf.globalAlpha = 1;
-    gf.fillStyle = '#2c4a7d';
+    gf.fillStyle = EGA.blue;
     for (let x = -20; x < W+20; x += 46) { const h = 50+rnd()*40; gf.beginPath(); gf.moveTo(x,H); gf.lineTo(x+23,H-h); gf.lineTo(x+46,H); gf.fill(); }
   } else if (theme === 'cavern') {
     for (let i = 0; i < 60; i++) { gf.fillStyle = t.accent; gf.globalAlpha = 0.15+rnd()*0.25; const x=rnd()*W,y=rnd()*H; gf.fillRect(x,y,1,1); }
-    gf.globalAlpha = 1; gf.fillStyle = '#141833';
+    gf.globalAlpha = 1; gf.fillStyle = EGA.dgray;
     for (let x = 0; x < W; x += 30) { const h = 24+rnd()*40; gf.beginPath(); gf.moveTo(x,0); gf.lineTo(x+15,h); gf.lineTo(x+30,0); gf.fill(); }
   } else {
-    gf.fillStyle = '#241620';
+    gf.fillStyle = EGA.dgray;
     for (let i=0;i<26;i++){ const x=rnd()*W,y=rnd()*H,w=8+rnd()*22; gf.fillRect(x,y,w,3); }
     gf.fillStyle = t.accent; gf.globalAlpha=0.2;
     for (let i=0;i<30;i++){ gf.fillRect(rnd()*W,rnd()*H,2,2);} gf.globalAlpha=1;
   }
   // mid layer: hills/structures
   const gm = mid.getContext('2d');
-  gm.fillStyle = theme === 'surface' ? '#2f7d44' : theme === 'cavern' ? '#222a4e' : '#3a2630';
+  gm.fillStyle = theme === 'surface' ? EGA.green : theme === 'cavern' ? EGA.dgray : EGA.red;
   for (let x = -10; x < W+40; x += 64) { const h = 40+rnd()*50; gm.beginPath(); gm.moveTo(x,H); gm.lineTo(x+10,H-h); gm.lineTo(x+50,H-h*0.7); gm.lineTo(x+64,H); gm.fill(); }
   bgCache[theme] = { far, mid };
   return bgCache[theme];
@@ -631,10 +638,46 @@ function startGame() {
   Game.levelIndex = 0;
   Game.lives = START_LIVES; Game.hearts = MAX_HEARTS; Game.ammo = START_AMMO;
   Game.score = 0;
-  loadLevel(0);
-  enterLevelCard();
+  buildWorldMap();
+  Game.state = 'worldmap';
 }
 function enterLevelCard() { Game.state = 'levelcard'; Game.timer = 1.8; }
+
+/* ---- Overworld map: walk between level nodes, enter to play ---- */
+function buildWorldMap() {
+  const pts = [[58,150],[160,104],[262,150],[120,150],[210,104]]; // fixed path positions
+  const nodes = Game.levels.map((lvl, i) => ({
+    x: pts[i] ? pts[i][0] : 40 + i*70, y: pts[i] ? pts[i][1] : 140,
+    name: lvl.name, theme: lvl.theme
+  }));
+  Game.map = {
+    nodes, cur: 0, maxUnlocked: 0, done: nodes.map(() => false), t: 0,
+    hero: { x: nodes[0].x, y: nodes[0].y, tx: nodes[0].x, ty: nodes[0].y, moving: false, dir: 1 }
+  };
+}
+function placeHeroOnNode(i) {
+  const m = Game.map, nd = m.nodes[i];
+  m.cur = i; m.hero.x = nd.x; m.hero.y = nd.y; m.hero.tx = nd.x; m.hero.ty = nd.y; m.hero.moving = false;
+}
+function enterMapLevel() {
+  Game.levelIndex = Game.map.cur;
+  loadLevel(Game.levelIndex);
+  enterLevelCard();
+  SFX.exit();
+}
+function updateWorldMap(dt) {
+  const m = Game.map, h = m.hero; m.t += dt;
+  if (h.moving) {
+    h.x = lerp(h.x, h.tx, 1 - Math.pow(0.00005, dt));
+    h.y = lerp(h.y, h.ty, 1 - Math.pow(0.00005, dt));
+    if (Math.abs(h.x - h.tx) < 0.7 && Math.abs(h.y - h.ty) < 0.7) { h.x = h.tx; h.y = h.ty; h.moving = false; }
+    return;
+  }
+  const maxReach = Math.min(m.nodes.length - 1, m.maxUnlocked);
+  if (pressed.right && m.cur < maxReach) { const nd = m.nodes[++m.cur]; h.tx = nd.x; h.ty = nd.y; h.moving = true; h.dir = 1; SFX.bump(); }
+  else if (pressed.left && m.cur > 0) { const nd = m.nodes[--m.cur]; h.tx = nd.x; h.ty = nd.y; h.moving = true; h.dir = -1; SFX.bump(); }
+  else if (pressed.jump || pressed.start) { enterMapLevel(); }
+}
 function respawn() {
   Game.hearts = MAX_HEARTS;
   Game.player = newPlayer(Game.startPos);
@@ -883,7 +926,7 @@ function defeatEnemy(e) {
   e.dead = true; e.dyTimer = 0.4;
   Game.defeated.add(e.sc + ',' + e.sr);   // stays cleared across respawns (no death-farming)
   Game.score += 150; Game.levelScore += 150;
-  spawnBurst(e.x+e.w/2, e.y+e.h/2, e.type==='flyer'?'#f4a259':e.type==='bloog'?'#9b5de5':'#36b37e', 12, 120);
+  spawnBurst(e.x+e.w/2, e.y+e.h/2, e.type==='flyer'?EGA.yellow:e.type==='bloog'?EGA.bmagenta:EGA.bgreen, 12, 120);
   Game.shake = Math.max(Game.shake, 4);
   SFX.enemy();
 }
@@ -915,7 +958,7 @@ function collect(k) {
   else if (k.kind === 'biggem') { Game.score += 500; Game.levelScore += 500; Game.gems++; SFX.biggem(); }
   else if (k.kind === 'ammo') { Game.ammo += 5; SFX.pickup(); }
   else if (k.kind === 'life') { Game.lives++; SFX.life(); }
-  spawnBurst(k.x+8, k.y+8, k.kind==='ammo'?'#ff7a6e':k.kind==='life'?C.helmetHi:'#7ce7ff', 8, 70);
+  spawnBurst(k.x+8, k.y+8, k.kind==='ammo'?EGA.bred:k.kind==='life'?C.helmetHi:EGA.bcyan, 8, 70);
 }
 
 function levelClear() {
@@ -966,20 +1009,20 @@ function drawTile(ch, sx, sy, c, r) {
     bx.fillStyle = t.blockD; bx.fillRect(sx, sy+4, 16, 1);
     bx.fillStyle = t.blockD; bx.fillRect(sx+3, sy+5, 1, 3); bx.fillRect(sx+12, sy+5, 1, 3);
   } else if (ch === '^') {
-    bx.fillStyle = '#c8ccd6';
+    bx.fillStyle = EGA.lgray;
     for (let i = 0; i < 4; i++) {
       const x = sx + i*4;
       bx.beginPath(); bx.moveTo(x, sy+16); bx.lineTo(x+2, sy+6); bx.lineTo(x+4, sy+16); bx.closePath(); bx.fill();
     }
-    bx.fillStyle = '#7a7f8c'; bx.fillRect(sx, sy+15, 16, 1);
+    bx.fillStyle = EGA.dgray; bx.fillRect(sx, sy+15, 16, 1);
   } else if (ch === 'D') {
     // glowing exit door
     const pulse = 0.5 + 0.5*Math.sin(Game.timer*4);
-    bx.fillStyle = '#1a1f2e'; bx.fillRect(sx+1, sy-16, 14, 32);
+    bx.fillStyle = EGA.black; bx.fillRect(sx+1, sy-16, 14, 32);
     bx.fillStyle = t.accent; bx.globalAlpha = 0.4 + 0.4*pulse;
     bx.fillRect(sx+3, sy-14, 10, 28); bx.globalAlpha = 1;
-    bx.fillStyle = '#ffffff'; bx.fillRect(sx+6, sy-2, 4, 4);
-    bx.fillStyle = '#0e1118'; bx.fillRect(sx, sy-16, 16, 1); bx.fillRect(sx, sy-16, 1, 32); bx.fillRect(sx+15, sy-16, 1, 32);
+    bx.fillStyle = EGA.white; bx.fillRect(sx+6, sy-2, 4, 4);
+    bx.fillStyle = EGA.black; bx.fillRect(sx, sy-16, 16, 1); bx.fillRect(sx, sy-16, 1, 32); bx.fillRect(sx+15, sy-16, 1, 32);
   }
 }
 
@@ -1071,22 +1114,23 @@ function txt(str, x, y, size, col, align, glow) {
 
 function drawHUD() {
   // top bar
-  bx.fillStyle = 'rgba(8,10,20,0.55)'; bx.fillRect(0, 0, W, 14);
-  txt('SCORE ' + String(Game.score).padStart(6,'0'), 4, 4, 7, '#ffe066');
+  bx.fillStyle = 'rgba(0,0,0,0.6)'; bx.fillRect(0, 0, W, 14);
+  bx.fillStyle = EGA.dgray; bx.fillRect(0, 14, W, 1);
+  txt('SCORE ' + String(Game.score).padStart(6,'0'), 4, 4, 7, EGA.yellow);
   // hearts
   for (let i = 0; i < MAX_HEARTS; i++) drawHeart(bx, 132 + i*10, 3, i < Game.hearts);
   // lives
   bx.drawImage(SPR.life, 170, 1, 12, 12);
-  txt('x' + Game.lives, 184, 4, 7, '#fff');
+  txt('x' + Game.lives, 184, 4, 7, EGA.white);
   // ammo
   bx.drawImage(SPR.ammo, 214, 1, 12, 12);
-  txt('x' + Game.ammo, 228, 4, 7, Game.ammo>0?'#fff':'#ff7a6e');
+  txt('x' + Game.ammo, 228, 4, 7, Game.ammo>0?EGA.white:EGA.bred);
   // gems
-  txt(Game.gems + '/' + Game.gemsTotal, W-4, 4, 7, '#7ce7ff', 'right');
+  txt(Game.gems + '/' + Game.gemsTotal, W-4, 4, 7, EGA.bcyan, 'right');
 }
 
 function drawVignette() {
-  if (Game.flash > 0) { bx.fillStyle = 'rgba(255,60,60,' + (Game.flash*0.4) + ')'; bx.fillRect(0,0,W,H); }
+  if (Game.flash > 0) { bx.fillStyle = 'rgba(170,0,0,' + (Game.flash*0.45) + ')'; bx.fillRect(0,0,W,H); }
 }
 
 /* ----------------------- OVERLAY SCREENS --------------------------- */
@@ -1098,10 +1142,10 @@ function drawTitle() {
   drawBackdrop();
   // animated hero on title
   const t = Game.timer;
-  bx.fillStyle = 'rgba(6,8,20,0.35)'; bx.fillRect(0,0,W,H);
-  txt('COMMANDER', W/2, 34, 18, '#ffe066', 'center', '#7d3b00');
-  txt('COSMO', W/2, 56, 22, '#3fae57', 'center', '#143a1c');
-  txt('GALACTIC POGO PATROL', W/2, 86, 7, '#7be39a', 'center');
+  bx.fillStyle = 'rgba(0,0,0,0.35)'; bx.fillRect(0,0,W,H);
+  txt('COMMANDER', W/2, 34, 18, EGA.yellow, 'center', EGA.brown);
+  txt('COSMO', W/2, 56, 22, EGA.bgreen, 'center', EGA.green);
+  txt('GALACTIC POGO PATROL', W/2, 86, 7, EGA.bgreen, 'center');
 
   // bouncing hero
   const by = 118 + Math.abs(Math.sin(t*4))* -16;
@@ -1109,73 +1153,120 @@ function drawTitle() {
   bx.fillStyle = C.gunD; bx.fillRect(W/2-1, by+18, 2, 8);
 
   const blink = Math.floor(t*2) % 2 === 0;
-  if (blink) txt('PRESS ENTER TO START', W/2, 150, 8, '#ffffff', 'center', '#222');
-  txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 172, 7, '#7ce7ff', 'center');
-  txt('←→ MOVE   Z SHOOT   X POGO   SPACE JUMP', W/2, 188, 6, '#cfd6e6', 'center');
-  txt('M  MUSIC' + (musicOn?' ON':'')  + '   N  MUTE', W/2, 198, 6, '#8b93a6', 'center');
+  if (blink) txt('PRESS ENTER TO START', W/2, 150, 8, EGA.white, 'center', EGA.black);
+  txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 172, 7, EGA.bcyan, 'center');
+  txt('A/D MOVE   Z SHOOT   X POGO   SPACE JUMP', W/2, 188, 6, EGA.lgray, 'center');
+  txt('M  MUSIC' + (musicOn?' ON':'')  + '   N  MUTE', W/2, 198, 6, EGA.lgray, 'center');
+}
+
+function drawWorldMap() {
+  const m = Game.map, t = m.t;
+  // EGA sky -> horizon
+  const grad = bx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0, EGA.bblue); grad.addColorStop(1, EGA.bcyan);
+  bx.fillStyle = grad; bx.fillRect(0,0,W,H);
+  // distant hills + grass band
+  bx.fillStyle = EGA.green;
+  for (let x=-10;x<W+40;x+=54){ bx.beginPath(); bx.moveTo(x,H); bx.lineTo(x+27,H-46); bx.lineTo(x+54,H); bx.fill(); }
+  bx.fillStyle = EGA.bgreen; bx.fillRect(0, H-36, W, 36);
+  bx.fillStyle = EGA.green; bx.fillRect(0, H-36, W, 2);
+  // path
+  bx.strokeStyle = EGA.brown; bx.lineWidth = 3; bx.beginPath();
+  for (let i=0;i<m.nodes.length;i++){ const n=m.nodes[i]; i===0?bx.moveTo(n.x,n.y):bx.lineTo(n.x,n.y); }
+  bx.stroke();
+  bx.fillStyle = EGA.yellow;
+  for (let i=0;i<m.nodes.length-1;i++){ const a=m.nodes[i],b=m.nodes[i+1]; for(let s=0.15;s<0.9;s+=0.16){ bx.fillRect(Math.round(lerp(a.x,b.x,s))-1, Math.round(lerp(a.y,b.y,s))-1, 2, 2);} }
+  // nodes
+  for (let i=0;i<m.nodes.length;i++){
+    const n=m.nodes[i], locked=i>m.maxUnlocked, done=m.done[i];
+    bx.fillStyle = locked?EGA.dgray:EGA.lgray; bx.fillRect(n.x-8, n.y-1, 16, 7);   // mound
+    bx.fillStyle = locked?EGA.dgray:(done?EGA.bgreen:EGA.bred); bx.fillRect(n.x-5, n.y-10, 10, 9); // dome
+    bx.fillStyle = EGA.black; bx.fillRect(n.x-5, n.y-10, 10, 1);
+    if (done){ bx.fillStyle=EGA.white; bx.fillRect(n.x-2, n.y-7, 4, 4); }
+    else if (locked){ bx.fillStyle=EGA.black; bx.fillRect(n.x-2, n.y-8, 4, 5); }
+    else if (Math.sin(t*6)>0){ bx.fillStyle=EGA.yellow; bx.fillRect(n.x-2, n.y-8, 4, 4); }
+    txt(String(i+1), n.x, n.y+7, 6, locked?EGA.dgray:EGA.white, 'center');
+  }
+  // hero token
+  const h=m.hero;
+  const bob = h.moving ? Math.abs(Math.sin(t*18))*-3 : Math.abs(Math.sin(t*3))*-2;
+  bx.drawImage(SPR['hero_stand_'+(h.dir>0?'R':'L')], Math.floor(h.x)-8, Math.floor(h.y)-18+bob);
+  // top banner
+  bx.fillStyle='rgba(0,0,0,0.55)'; bx.fillRect(0,0,W,26);
+  txt('ORION SYSTEM MAP', W/2, 4, 8, EGA.yellow, 'center', EGA.brown);
+  txt(m.nodes[m.cur].name.toUpperCase(), W/2, 16, 7, m.done[m.cur]?EGA.bgreen:EGA.white, 'center');
+  // prompts
+  if (!h.moving){
+    if (Math.floor(t*2)%2===0) txt('SPACE / ENTER = PLAY', W/2, H-44, 7, EGA.bcyan, 'center', EGA.black);
+    txt('A / D  TRAVEL', W/2, H-32, 6, EGA.lgray, 'center', EGA.black);
+  }
+  // mini hud
+  txt('SCORE '+String(Game.score).padStart(6,'0'), 4, H-11, 7, EGA.yellow, 'left', EGA.black);
+  bx.drawImage(SPR.life, W-58, H-13, 11, 11);
+  txt('x'+Game.lives, W-44, H-11, 7, EGA.white, 'left', EGA.black);
 }
 
 function drawLevelCard() {
   drawBackdrop(); drawWorld(); drawHUD();
-  bx.fillStyle = 'rgba(6,8,18,0.7)'; bx.fillRect(0, 0, W, H);
-  txt('LEVEL ' + (Game.levelIndex+1), W/2, 70, 10, '#ffe066', 'center', '#7d3b00');
-  txt(Game.levelName.toUpperCase(), W/2, 92, 9, '#fff', 'center', '#222');
-  txt(Game.levels[Game.levelIndex].hint, W/2, 116, 6, '#7be39a', 'center');
+  bx.fillStyle = 'rgba(0,0,0,0.7)'; bx.fillRect(0, 0, W, H);
+  txt('LEVEL ' + (Game.levelIndex+1), W/2, 70, 10, EGA.yellow, 'center', EGA.brown);
+  txt(Game.levelName.toUpperCase(), W/2, 92, 9, EGA.white, 'center', EGA.black);
+  txt(Game.levels[Game.levelIndex].hint, W/2, 116, 6, EGA.bgreen, 'center');
 }
 
 function drawPause() {
   drawBackdrop(); drawWorld(); drawHUD();
-  bx.fillStyle = 'rgba(6,8,18,0.72)'; bx.fillRect(0, 0, W, H);
-  txt('PAUSED', W/2, 70, 16, '#ffe066', 'center', '#7d3b00');
-  txt('ENTER / P  RESUME', W/2, 100, 7, '#fff', 'center');
-  txt('M  MUSIC: ' + (musicOn?'ON':'OFF'), W/2, 116, 7, '#cfd6e6', 'center');
-  txt('N  SOUND: ' + (muted?'OFF':'ON'), W/2, 130, 7, '#cfd6e6', 'center');
-  txt('ESC  QUIT TO TITLE', W/2, 146, 7, '#cfd6e6', 'center');
+  bx.fillStyle = 'rgba(0,0,0,0.72)'; bx.fillRect(0, 0, W, H);
+  txt('PAUSED', W/2, 70, 16, EGA.yellow, 'center', EGA.brown);
+  txt('ENTER / P  RESUME', W/2, 100, 7, EGA.white, 'center');
+  txt('M  MUSIC: ' + (musicOn?'ON':'OFF'), W/2, 116, 7, EGA.lgray, 'center');
+  txt('N  SOUND: ' + (muted?'OFF':'ON'), W/2, 130, 7, EGA.lgray, 'center');
+  txt('ESC  QUIT TO TITLE', W/2, 146, 7, EGA.lgray, 'center');
 }
 
 function drawDead() {
   drawBackdrop(); drawWorld(); drawHUD();
-  bx.fillStyle = 'rgba(40,6,10,0.55)'; bx.fillRect(0, 0, W, H);
-  txt('OUCH!', W/2, 84, 16, '#ff5566', 'center', '#400');
-  txt('LIVES LEFT: ' + Game.lives, W/2, 116, 8, '#fff', 'center');
+  bx.fillStyle = 'rgba(85,0,0,0.55)'; bx.fillRect(0, 0, W, H);
+  txt('OUCH!', W/2, 84, 16, EGA.bred, 'center', EGA.black);
+  txt('LIVES LEFT: ' + Game.lives, W/2, 116, 8, EGA.white, 'center');
 }
 
 function drawLevelClear() {
   drawBackdrop(); drawWorld(); drawHUD();
-  bx.fillStyle = 'rgba(6,18,12,0.72)'; bx.fillRect(0, 0, W, H);
-  txt('LEVEL CLEAR!', W/2, 60, 14, '#7be39a', 'center', '#143a1c');
-  txt('GEMS ' + Game.gems + '/' + Game.gemsTotal, W/2, 92, 8, '#7ce7ff', 'center');
-  if (Game.perfect) txt('PERFECT! +1000', W/2, 108, 8, '#ffe066', 'center');
-  txt('SCORE ' + String(Game.score).padStart(6,'0'), W/2, 128, 8, '#fff', 'center');
+  bx.fillStyle = 'rgba(0,0,0,0.72)'; bx.fillRect(0, 0, W, H);
+  txt('LEVEL CLEAR!', W/2, 60, 14, EGA.bgreen, 'center', EGA.green);
+  txt('GEMS ' + Game.gems + '/' + Game.gemsTotal, W/2, 92, 8, EGA.bcyan, 'center');
+  if (Game.perfect) txt('PERFECT! +1000', W/2, 108, 8, EGA.yellow, 'center');
+  txt('SCORE ' + String(Game.score).padStart(6,'0'), W/2, 128, 8, EGA.white, 'center');
 }
 
 function drawGameOver() {
-  bx.fillStyle = '#05060f'; bx.fillRect(0,0,W,H);
+  bx.fillStyle = EGA.black; bx.fillRect(0,0,W,H);
   drawBackdrop();
-  bx.fillStyle = 'rgba(6,8,18,0.7)'; bx.fillRect(0, 0, W, H);
-  txt('GAME OVER', W/2, 64, 18, '#ff5566', 'center', '#400');
-  txt('SCORE ' + String(Game.score).padStart(6,'0'), W/2, 100, 9, '#fff', 'center');
-  txt('HIGH  ' + String(Game.highScore).padStart(6,'0'), W/2, 118, 8, '#7ce7ff', 'center');
+  bx.fillStyle = 'rgba(0,0,0,0.7)'; bx.fillRect(0, 0, W, H);
+  txt('GAME OVER', W/2, 64, 18, EGA.bred, 'center', EGA.black);
+  txt('SCORE ' + String(Game.score).padStart(6,'0'), W/2, 100, 9, EGA.white, 'center');
+  txt('HIGH  ' + String(Game.highScore).padStart(6,'0'), W/2, 118, 8, EGA.bcyan, 'center');
   const blink = Math.floor(Game.timer*2) % 2 === 0;
-  if (blink) txt('PRESS ENTER', W/2, 150, 8, '#ffe066', 'center');
+  if (blink) txt('PRESS ENTER', W/2, 150, 8, EGA.yellow, 'center');
 }
 
 function drawVictory() {
   drawBackdrop();
-  bx.fillStyle = 'rgba(6,8,18,0.55)'; bx.fillRect(0, 0, W, H);
+  bx.fillStyle = 'rgba(0,0,0,0.55)'; bx.fillRect(0, 0, W, H);
   const t = Game.timer;
-  txt('YOU WIN!', W/2, 40, 20, '#ffe066', 'center', '#7d3b00');
-  txt('THE GALAXY IS SAFE', W/2, 70, 8, '#7be39a', 'center');
+  txt('YOU WIN!', W/2, 40, 20, EGA.yellow, 'center', EGA.brown);
+  txt('THE SYSTEM IS SAFE', W/2, 70, 8, EGA.bgreen, 'center');
   // victory dancing hero
   const by = 92 + Math.abs(Math.sin(t*5))*-10;
   bx.drawImage(SPR[Math.floor(t*4)%2? 'hero_run1_R':'hero_run2_R'], W/2-8, by);
-  txt('FINAL SCORE', W/2, 124, 8, '#fff', 'center');
-  txt(String(Game.score).padStart(6,'0'), W/2, 138, 12, '#ffe066', 'center', '#7d3b00');
-  txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 160, 7, '#7ce7ff', 'center');
+  txt('FINAL SCORE', W/2, 124, 8, EGA.white, 'center');
+  txt(String(Game.score).padStart(6,'0'), W/2, 138, 12, EGA.yellow, 'center', EGA.brown);
+  txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 160, 7, EGA.bcyan, 'center');
   const blink = Math.floor(t*2) % 2 === 0;
-  if (blink) txt('PRESS ENTER', W/2, 182, 7, '#fff', 'center');
+  if (blink) txt('PRESS ENTER', W/2, 182, 7, EGA.white, 'center');
   // confetti
-  if (Math.random() < 0.4) Game.particles.push({ x:Math.random()*W, y:-2, vx:(Math.random()*2-1)*20, vy:40+Math.random()*40, life:3, color:['#ffe066','#ff5566','#7ce7ff','#3fae57'][Math.random()*4|0], size:2, grav:30 });
+  if (Math.random() < 0.4) Game.particles.push({ x:Math.random()*W, y:-2, vx:(Math.random()*2-1)*20, vy:40+Math.random()*40, life:3, color:[EGA.yellow,EGA.bred,EGA.bcyan,EGA.bgreen][Math.random()*4|0], size:2, grav:30 });
   updateParticles(1/60);
   for (const pt of Game.particles) { bx.globalAlpha = clamp(pt.life,0,1); bx.fillStyle = pt.color; bx.fillRect(Math.floor(pt.x), Math.floor(pt.y), pt.size, pt.size); }
   bx.globalAlpha = 1;
@@ -1187,6 +1278,9 @@ function update(dt) {
     case 'title':
       Game.timer += dt;
       if (pressed.start) { ensureAudio(); startGame(); SFX.select(); }
+      break;
+    case 'worldmap':
+      updateWorldMap(dt);
       break;
     case 'levelcard':
       Game.timer -= dt;
@@ -1214,9 +1308,15 @@ function update(dt) {
       Game.timer -= dt;
       updateParticles(dt);
       if (Game.timer <= 0 || pressed.start) {
-        Game.levelIndex++;
-        if (Game.levelIndex >= Game.levels.length) { Game.state = 'victory'; Game.timer = 0; saveHigh(); }
-        else { loadLevel(Game.levelIndex); enterLevelCard(); }
+        const m = Game.map;
+        m.done[Game.levelIndex] = true;
+        if (m.done.every(Boolean)) { Game.state = 'victory'; Game.timer = 0; saveHigh(); }
+        else {
+          const next = Math.min(Game.levels.length - 1, Game.levelIndex + 1);
+          m.maxUnlocked = Math.max(m.maxUnlocked, next);
+          placeHeroOnNode(next);
+          Game.state = 'worldmap';
+        }
       }
       break;
     case 'gameover':
@@ -1242,6 +1342,7 @@ function render() {
   }
   switch (Game.state) {
     case 'title': drawTitle(); break;
+    case 'worldmap': drawWorldMap(); break;
     case 'levelcard': drawLevelCard(); break;
     case 'play': drawBackdrop(); drawWorld(); drawHUD(); drawVignette(); break;
     case 'pause': drawPause(); break;
