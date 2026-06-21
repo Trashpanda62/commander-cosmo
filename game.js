@@ -72,10 +72,26 @@ const KEYMAP = {
   KeyX:['pogo'], ShiftLeft:['pogo'], ShiftRight:['pogo'], KeyK:['pogo'],
   KeyP:['pause'], Escape:['pause'],
   Enter:['start'], NumpadEnter:['start'],
-  KeyM:['music'], KeyN:['mute'],
+  KeyM:['music'], KeyN:['mute'], KeyF:['fullscreen'],
 };
 const held = {};
 const pressed = {};
+/* Fullscreen — must be invoked from inside a user gesture. requestFullscreen is a no-op on
+   iPhone Safari (unsupported); there the PWA "Add to Home Screen" launches truly chrome-less. */
+let triedFS = false;
+function requestFS() {
+  const el = document.documentElement;
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen || el.mozRequestFullScreen;
+  if (!fn || document.fullscreenElement || document.webkitFullscreenElement) return;
+  try { const p = fn.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+function toggleFS() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    const fn = document.exitFullscreen || document.webkitExitFullscreen;
+    if (fn) try { fn.call(document); } catch (e) {}
+  } else requestFS();
+}
+function goFullscreenOnce() { if (triedFS) return; triedFS = true; requestFS(); }
 function onKey(e, down) {
   const acts = KEYMAP[e.code];
   if (!acts) return;
@@ -84,11 +100,17 @@ function onKey(e, down) {
     if (down) { if (!held[a]) pressed[a] = true; held[a] = true; }
     else held[a] = false;
   }
+  if (down && acts.includes('fullscreen')) toggleFS();      // F = manual toggle
+  if (down && acts.includes('start')) goFullscreenOnce();   // pressing Start goes fullscreen
   ensureAudio();
 }
 window.addEventListener('keydown', e => onKey(e, true));
 window.addEventListener('keyup', e => onKey(e, false));
 window.addEventListener('blur', () => { for (const k in held) held[k] = false; });
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+document.addEventListener('fullscreenchange', resize);
+document.addEventListener('webkitfullscreenchange', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 function clearPressed() { for (const k in pressed) pressed[k] = false; }
 
 /* On-screen touch controls (mobile).
@@ -131,7 +153,7 @@ function bindTouch() {
   // tap there must NOT fire Start (which would re-enter a fort / unpause). Audio unlock stays
   // outside the guard so the first tap in any state enables sound.
   const MENU = { title:1, levelcard:1, gameover:1, victory:1 };
-  const tapStart = () => { ensureAudio(); if (MENU[Game.state]) pressed.start = true; };
+  const tapStart = () => { ensureAudio(); if (MENU[Game.state]) { pressed.start = true; goFullscreenOnce(); } };
   canvas.addEventListener('touchstart', tapStart, { passive: true });
   canvas.addEventListener('mousedown', tapStart);
 }
@@ -1812,7 +1834,7 @@ function drawTitle() {
   if (blink) txt('PRESS ENTER TO START', W/2, 150, 8, EGA.white, 'center', EGA.black);
   txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 172, 7, EGA.bcyan, 'center');
   txt('A/D MOVE   Z SHOOT   X POGO   SPACE JUMP', W/2, 188, 6, EGA.lgray, 'center');
-  txt('M  MUSIC' + (musicOn?' ON':'')  + '   N  MUTE', W/2, 198, 6, EGA.lgray, 'center');
+  txt('M MUSIC   N MUTE   F FULLSCREEN', W/2, 198, 6, EGA.lgray, 'center');
 }
 
 function drawMapTile(ch, sx, sy, c, r, t) {

@@ -1,0 +1,12 @@
+{
+  "name": "Commander Cosmo — Galactic Pogo Patrol",
+  "short_name": "Cosmo",
+  "description": "An original Commander Keen-style EGA platformer.",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#05060d",
+  "theme_color": "#05060d",
+  "start_url": "./",
+  "scope": "./"
+}
