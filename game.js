@@ -126,8 +126,12 @@ function bindTouch() {
   for (const ev of ['touchstart','touchmove','touchend','touchcancel'])
     touchEl.addEventListener(ev, handler, { passive: false });
   isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-  // Tap anywhere outside the buttons = Start/confirm, so phone players can start & advance menus.
-  const tapStart = () => { pressed.start = true; ensureAudio(); };
+  // Tap to confirm ONLY on menu screens that have no on-screen button (so phone players can
+  // start & advance them). In play/worldmap/pause the pad's own buttons handle input — a stray
+  // tap there must NOT fire Start (which would re-enter a fort / unpause). Audio unlock stays
+  // outside the guard so the first tap in any state enables sound.
+  const MENU = { title:1, levelcard:1, gameover:1, victory:1 };
+  const tapStart = () => { ensureAudio(); if (MENU[Game.state]) pressed.start = true; };
   canvas.addEventListener('touchstart', tapStart, { passive: true });
   canvas.addEventListener('mousedown', tapStart);
 }
@@ -890,6 +894,20 @@ function enemyFromChar(ch, c, r) {
   if (ch === 'F') en.homing = true;
   return en;
 }
+// Build moving platforms from a level's grid. Deterministic phase => identical position every
+// load AND every respawn, so a lift/mover is never in a different place on retry.
+function buildPlatforms(lvl) {
+  const out = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < lvl.cols; c++) {
+    const ch = lvl.g[r][c];
+    if (ch === 'm' || ch === 'v') out.push({
+      x: c*16, y: r*16+4, w: 32, h: 8, axis: ch==='m' ? 'h' : 'v',
+      x0: c*16, y0: r*16+4, range: ch==='m' ? 44 : 40, speed: 1.1,
+      t: ((c*7 + r*13) % 12) * 0.5, dx: 0, dy: 0,
+    });
+  }
+  return out;
+}
 
 /* --------------------------- GAME STATE ---------------------------- */
 const Game = {
@@ -940,11 +958,7 @@ function loadLevel(idx) {
     for (let c = 0; c < lvl.cols; c++) {
       const ch = Game.grid[r][c];
       if (ch === 'P') { start = { x: c*16, y: r*16 }; Game.grid[r][c] = ' '; }
-      else if (ch === 'm' || ch === 'v') {        // moving platform: horizontal / vertical
-        Game.platforms.push({ x:c*16, y:r*16+4, w:32, h:8, axis: ch==='m'?'h':'v',
-          x0:c*16, y0:r*16+4, range: ch==='m'?44:40, speed:1.1, t:Math.random()*6, dx:0, dy:0 });
-        Game.grid[r][c] = ' ';
-      }
+      else if (ch === 'm' || ch === 'v') { Game.grid[r][c] = ' '; }  // platforms built from lvl.g below
       else if (isEnemyChar(ch)) {
         Game.enemies.push(enemyFromChar(ch, c, r));
         Game.grid[r][c] = ' ';
@@ -956,6 +970,7 @@ function loadLevel(idx) {
       }
     }
   }
+  Game.platforms = buildPlatforms(lvl);
   Game.player = newPlayer(start);
   Game.cam.x = clamp(Game.player.x - W/2, 0, Game.cols*16 - W);
   Game.cam.y = 0;
@@ -1064,6 +1079,7 @@ function respawn() {
   Game.player.invuln = 1.0;
   Game.cam.x = clamp(Game.player.x - W/2, 0, Game.cols*16 - W);
   Game.shots = []; Game.eshots = [];
+  Game.platforms = buildPlatforms(Game.levels[Game.levelIndex]);  // reset to deterministic phase
   // restore non-collected pickups? keep collected. reset enemies positions of this level:
   loadEnemiesOnly();
   Game.state = 'play';
