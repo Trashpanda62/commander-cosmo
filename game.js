@@ -393,13 +393,13 @@ function drawHeart(g, x, y, full) {
 const THEMES = {
   surface: { sky:[EGA.blue, EGA.bblue, EGA.bcyan], grass:EGA.bgreen, grassD:EGA.green,
              dirt:EGA.brown, dirtD:EGA.black, block:EGA.lgray, blockD:EGA.dgray,
-             accent:EGA.bgreen },
+             accent:EGA.bgreen, spike:EGA.lgray, spikeD:EGA.dgray },
   cavern:  { sky:[EGA.black, EGA.black, EGA.blue], grass:EGA.lgray, grassD:EGA.dgray,
              dirt:EGA.dgray, dirtD:EGA.black, block:EGA.bblue, blockD:EGA.blue,
-             accent:EGA.bcyan },
+             accent:EGA.bcyan, spike:EGA.white, spikeD:EGA.dgray },
   fortress:{ sky:[EGA.black, EGA.black, EGA.red], grass:EGA.lgray, grassD:EGA.dgray,
              dirt:EGA.dgray, dirtD:EGA.black, block:EGA.lgray, blockD:EGA.dgray,
-             accent:EGA.bred },
+             accent:EGA.bred, spike:EGA.yellow, spikeD:EGA.red },
 };
 
 /* parallax backdrop cache per theme */
@@ -1009,12 +1009,12 @@ function drawTile(ch, sx, sy, c, r) {
     bx.fillStyle = t.blockD; bx.fillRect(sx, sy+4, 16, 1);
     bx.fillStyle = t.blockD; bx.fillRect(sx+3, sy+5, 1, 3); bx.fillRect(sx+12, sy+5, 1, 3);
   } else if (ch === '^') {
-    bx.fillStyle = EGA.lgray;
+    bx.fillStyle = t.spike;
     for (let i = 0; i < 4; i++) {
       const x = sx + i*4;
-      bx.beginPath(); bx.moveTo(x, sy+16); bx.lineTo(x+2, sy+6); bx.lineTo(x+4, sy+16); bx.closePath(); bx.fill();
+      bx.beginPath(); bx.moveTo(x, sy+16); bx.lineTo(x+2, sy+5); bx.lineTo(x+4, sy+16); bx.closePath(); bx.fill();
     }
-    bx.fillStyle = EGA.dgray; bx.fillRect(sx, sy+15, 16, 1);
+    bx.fillStyle = t.spikeD; bx.fillRect(sx, sy+14, 16, 2);   // dark base — separates spikes from the ground cap
   } else if (ch === 'D') {
     // glowing exit door
     const pulse = 0.5 + 0.5*Math.sin(Game.timer*4);
