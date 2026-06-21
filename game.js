@@ -91,23 +91,51 @@ window.addEventListener('keyup', e => onKey(e, false));
 window.addEventListener('blur', () => { for (const k in held) held[k] = false; });
 function clearPressed() { for (const k in pressed) pressed[k] = false; }
 
-/* On-screen touch buttons (mobile) */
+/* On-screen touch controls (mobile).
+   A single container-level tracker hit-tests every active touch against the buttons each event,
+   so multi-touch (move + jump) AND sliding a thumb between buttons both work. */
+let touchEl = null, isTouch = false;
 function bindTouch() {
-  const map = [['btn-left','left'],['btn-right','right'],['btn-up','up'],['btn-down','down'],
-               ['btn-jump','jump'],['btn-shoot','shoot'],['btn-pogo','pogo']];
-  map.forEach(([id, act]) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const set = (v, e) => { e.preventDefault(); if (v && !held[act]) pressed[act]=true; held[act]=v; ensureAudio(); };
-    el.addEventListener('touchstart', e => set(true, e), {passive:false});
-    el.addEventListener('touchend',   e => set(false, e), {passive:false});
-    el.addEventListener('mousedown',  e => set(true, e));
-    window.addEventListener('mouseup', () => { held[act]=false; });
-  });
-  if ('ontouchstart' in window) {
-    const tc = document.getElementById('touch');
-    if (tc) tc.style.display = 'flex';
-  }
+  touchEl = document.getElementById('touch');
+  if (!touchEl) return;
+  const buttons = [['btn-left','left'],['btn-right','right'],['btn-up','up'],['btn-down','down'],
+                   ['btn-jump','jump'],['btn-shoot','shoot'],['btn-pogo','pogo']]
+    .map(([id, act]) => ({ el: document.getElementById(id), act })).filter(b => b.el);
+  const hit = (x, y) => {
+    for (const b of buttons) {
+      const r = b.el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return b;
+    }
+    return null;
+  };
+  const refresh = touches => {
+    const now = {};
+    for (let i = 0; i < touches.length; i++) {
+      const b = hit(touches[i].clientX, touches[i].clientY);
+      if (b) now[b.act] = true;
+    }
+    for (const b of buttons) {
+      const on = !!now[b.act];
+      if (on && !held[b.act]) pressed[b.act] = true;
+      held[b.act] = on;
+      b.el.classList.toggle('on', on);
+    }
+    ensureAudio();
+  };
+  const handler = e => { e.preventDefault(); refresh(e.touches); };
+  for (const ev of ['touchstart','touchmove','touchend','touchcancel'])
+    touchEl.addEventListener(ev, handler, { passive: false });
+  isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  // Tap anywhere outside the buttons = Start/confirm, so phone players can start & advance menus.
+  const tapStart = () => { pressed.start = true; ensureAudio(); };
+  canvas.addEventListener('touchstart', tapStart, { passive: true });
+  canvas.addEventListener('mousedown', tapStart);
+}
+// Show the on-screen pad only when it's actually useful (gameplay/map/pause); menus use tap-to-start.
+function updateTouchVisibility() {
+  if (!isTouch || !touchEl) return;
+  const want = (Game.state === 'play' || Game.state === 'worldmap' || Game.state === 'pause') ? 'flex' : 'none';
+  if (touchEl._vis !== want) { touchEl.style.display = want; touchEl._vis = want; }
 }
 
 /* ---------------------------- AUDIO -------------------------------- */
@@ -380,6 +408,25 @@ function bakeAll() {
     SPR['hopper_'+fr+'_R'] = c; SPR['hopper_'+fr+'_L'] = flip(c);
   }
 
+  // Turret (stationary cannon) — fr1 = muzzle glow when firing. Barrel faces right.
+  for (const fr of [0, 1]) {
+    const c = newSprite(16, 16); const g = c.getContext('2d');
+    P(g,2,3,11,12,EGA.dgray); P(g,2,3,11,1,EGA.lgray); P(g,2,14,11,1,EGA.black);
+    P(g,5,6,6,5,EGA.bred); P(g,6,7,3,3,fr?EGA.yellow:EGA.white);   // eye
+    P(g,12,7,4,3,EGA.lgray); P(g,12,8,4,1,EGA.dgray);              // barrel
+    if (fr) P(g,16-1,7,1,3,EGA.yellow);
+    SPR['turret_'+fr+'_R'] = c; SPR['turret_'+fr+'_L'] = flip(c);
+  }
+
+  // Bouncer (invincible spiked ball — must be dodged) — fr toggles spike orientation
+  for (const fr of [0, 1]) {
+    const c = newSprite(16, 16); const g = c.getContext('2d');
+    P(g,4,4,8,8,EGA.bmagenta); P(g,5,5,6,6,EGA.magenta); P(g,6,6,2,2,EGA.white);
+    if (fr === 0) { P(g,7,0,2,4,EGA.white); P(g,7,12,2,4,EGA.white); P(g,0,7,4,2,EGA.white); P(g,12,7,4,2,EGA.white); }
+    else { P(g,2,2,3,3,EGA.white); P(g,11,2,3,3,EGA.white); P(g,2,11,3,3,EGA.white); P(g,11,11,3,3,EGA.white); }
+    SPR['bouncer_'+fr+'_R'] = c; SPR['bouncer_'+fr+'_L'] = flip(c);
+  }
+
   // gem (EGA cyan crystal) — animated shimmer handled at draw
   const gem = newSprite(10,10); { const g = gem.getContext('2d');
     P(g,4,1,2,1,EGA.bcyan); P(g,3,2,4,1,EGA.bcyan); P(g,2,3,6,2,EGA.cyan);
@@ -423,6 +470,18 @@ const THEMES = {
   fortress:{ sky:[EGA.black, EGA.black, EGA.red], grass:EGA.lgray, grassD:EGA.dgray,
              dirt:EGA.dgray, dirtD:EGA.black, block:EGA.lgray, blockD:EGA.dgray,
              accent:EGA.bred, spike:EGA.yellow, spikeD:EGA.red },
+  ice:     { sky:[EGA.blue, EGA.bblue, EGA.bcyan], grass:EGA.white, grassD:EGA.bcyan,
+             dirt:EGA.bcyan, dirtD:EGA.blue, block:EGA.white, blockD:EGA.bcyan,
+             accent:EGA.bcyan, spike:EGA.bblue, spikeD:EGA.blue, icy:true },
+  lava:    { sky:[EGA.black, EGA.red, EGA.brown], grass:EGA.dgray, grassD:EGA.black,
+             dirt:EGA.dgray, dirtD:EGA.black, block:EGA.dgray, blockD:EGA.black,
+             accent:EGA.bred, spike:EGA.yellow, spikeD:EGA.red },
+  forest:  { sky:[EGA.blue, EGA.green, EGA.bgreen], grass:EGA.bgreen, grassD:EGA.green,
+             dirt:EGA.brown, dirtD:EGA.black, block:EGA.brown, blockD:EGA.black,
+             accent:EGA.bgreen, spike:EGA.lgray, spikeD:EGA.dgray },
+  factory: { sky:[EGA.black, EGA.blue, EGA.dgray], grass:EGA.lgray, grassD:EGA.dgray,
+             dirt:EGA.dgray, dirtD:EGA.black, block:EGA.lgray, blockD:EGA.dgray,
+             accent:EGA.bcyan, spike:EGA.yellow, spikeD:EGA.red },
 };
 
 /* parallax backdrop cache per theme */
@@ -436,24 +495,28 @@ function makeBackdrop(theme) {
   // seeded pseudo-random
   let s = theme.length * 9301 + 49297;
   const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-  if (theme === 'surface') {
-    for (let i = 0; i < 40; i++) { const x = rnd()*W, y = rnd()*60; gf.fillStyle=EGA.white; gf.globalAlpha=0.5+rnd()*0.5; gf.fillRect(x,y,1,1); }
+  if (theme === 'surface' || theme === 'forest' || theme === 'ice') {
+    // sky specks (stars / snow)
+    for (let i = 0; i < 44; i++) { const x = rnd()*W, y = rnd()*70; gf.fillStyle=EGA.white; gf.globalAlpha=0.4+rnd()*0.5; gf.fillRect(x,y,1,1); }
     gf.globalAlpha = 1;
-    gf.fillStyle = EGA.blue;
+    gf.fillStyle = theme === 'forest' ? EGA.green : theme === 'ice' ? EGA.bcyan : EGA.blue;
     for (let x = -20; x < W+20; x += 46) { const h = 50+rnd()*40; gf.beginPath(); gf.moveTo(x,H); gf.lineTo(x+23,H-h); gf.lineTo(x+46,H); gf.fill(); }
-  } else if (theme === 'cavern') {
+  } else if (theme === 'cavern' || theme === 'factory') {
     for (let i = 0; i < 60; i++) { gf.fillStyle = t.accent; gf.globalAlpha = 0.15+rnd()*0.25; const x=rnd()*W,y=rnd()*H; gf.fillRect(x,y,1,1); }
     gf.globalAlpha = 1; gf.fillStyle = EGA.dgray;
-    for (let x = 0; x < W; x += 30) { const h = 24+rnd()*40; gf.beginPath(); gf.moveTo(x,0); gf.lineTo(x+15,h); gf.lineTo(x+30,0); gf.fill(); }
+    if (theme === 'factory') { for (let x = 4; x < W; x += 26) { const h = 30+rnd()*60; gf.fillRect(x, H-h, 10, h); gf.fillRect(x-2, H-h, 14, 4); } } // pipes/towers
+    else for (let x = 0; x < W; x += 30) { const h = 24+rnd()*40; gf.beginPath(); gf.moveTo(x,0); gf.lineTo(x+15,h); gf.lineTo(x+30,0); gf.fill(); } // stalactites
   } else {
-    gf.fillStyle = EGA.dgray;
+    // fortress / lava: dark glow blobs
+    gf.fillStyle = theme === 'lava' ? EGA.red : EGA.dgray;
     for (let i=0;i<26;i++){ const x=rnd()*W,y=rnd()*H,w=8+rnd()*22; gf.fillRect(x,y,w,3); }
     gf.fillStyle = t.accent; gf.globalAlpha=0.2;
     for (let i=0;i<30;i++){ gf.fillRect(rnd()*W,rnd()*H,2,2);} gf.globalAlpha=1;
   }
   // mid layer: hills/structures
   const gm = mid.getContext('2d');
-  gm.fillStyle = theme === 'surface' ? EGA.green : theme === 'cavern' ? EGA.dgray : EGA.red;
+  gm.fillStyle = (theme === 'surface' || theme === 'forest') ? EGA.green : theme === 'ice' ? EGA.bcyan
+               : (theme === 'cavern' || theme === 'factory') ? EGA.dgray : EGA.red;
   for (let x = -10; x < W+40; x += 64) { const h = 40+rnd()*50; gm.beginPath(); gm.moveTo(x,H); gm.lineTo(x+10,H-h); gm.lineTo(x+50,H-h*0.7); gm.lineTo(x+64,H); gm.fill(); }
   bgCache[theme] = { far, mid };
   return bgCache[theme];
@@ -474,6 +537,8 @@ function makeLevel(cols, theme, name, hint) {
     block(c, r, w=1, h=1) { for (let i=0;i<w;i++) for (let j=0;j<h;j++) set(c+i,r+j,'B'); return this; },
     plat(c, r, len) { for (let i=0;i<len;i++) set(c+i,r,'T'); return this; },
     spikes(c, r, len) { for (let i=0;i<len;i++) set(c+i,r,'^'); return this; },
+    lava(c, r, len) { for (let i=0;i<len;i++) set(c+i,r,'L'); return this; },               // lethal floor (sits on ground)
+    conv(c, r, len, dir) { const ch = dir>0?'>':'<'; for (let i=0;i<len;i++) set(c+i,r,ch); return this; }, // conveyor belt
     put(c, r, ch) { set(c,r,ch); return this; },
     row(arr) { return this; },
   };
@@ -672,6 +737,137 @@ function buildLevels() {
     L.push(m);
   }
 
+  /* ---- Level 7: Frostbite Caverns (ICE - slippery footing, vertical lifts) ---- */
+  {
+    const cols = 98;
+    const m = makeLevel(cols, 'ice', 'Frostbite Caverns', 'Slippery ice! Brake early.');
+    m.ground(0, 24, 11);
+    m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'o'); m.put(6,10,'a');
+    m.put(10,10,'y'); m.put(15,10,'b');
+    m.block(12,9,1,2); m.put(12,8,'o');
+    m.plat(17,8,3); m.put(18,7,'o'); m.spikes(21,10,2);
+    m.ground(28, 50, 11);                 // 3-tile pit 25-27
+    m.put(31,10,'F'); m.put(36,10,'b'); m.put(41,10,'j'); m.put(47,10,'y');
+    m.plat(32,8,3); m.put(33,7,'o');
+    m.put(38,8,'v'); m.put(38,4,'G');     // vertical lift to a bonus big-gem
+    m.spikes(44,10,2);
+    m.ground(54, 74, 11);                 // 3-tile pit 51-53
+    m.put(56,10,'b'); m.put(61,10,'F'); m.put(66,10,'j'); m.put(71,10,'b');
+    m.plat(57,8,3); m.put(58,7,'o'); m.plat(63,6,3); m.put(64,5,'G');
+    m.put(68,10,'a'); m.put(69,10,'h'); m.spikes(72,10,2);
+    m.ground(78, cols-1, 11);             // 3-tile pit 75-77
+    m.put(80,10,'F'); m.put(85,10,'b'); m.put(90,10,'j');
+    m.plat(82,8,3); m.put(83,7,'o');
+    m.put(92,10,'o'); m.put(93,10,'o');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
+  /* ---- Level 8: Whispering Woods (FOREST - hoppers, flyers, lifts) ---- */
+  {
+    const cols = 104;
+    const m = makeLevel(cols, 'forest', 'Whispering Woods', 'The brush is alive with hoppers.');
+    m.ground(0, 28, 11);
+    m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'o');
+    m.put(9,10,'j'); m.put(14,10,'j'); m.put(20,10,'b');
+    m.block(12,9,1,2); m.put(12,8,'o');
+    m.plat(16,8,3); m.put(17,7,'o'); m.plat(22,7,3); m.put(23,6,'G');
+    m.spikes(26,10,2);
+    m.ground(32, 54, 11);                 // 3-tile pit 29-31
+    m.put(34,10,'F'); m.put(39,10,'j'); m.put(44,10,'b'); m.put(50,10,'j');
+    m.plat(35,8,3); m.put(36,7,'o');
+    m.put(42,8,'v'); m.put(42,4,'G');
+    m.put(47,10,'a'); m.spikes(52,10,2);
+    m.ground(58, 80, 11);                 // 3-tile pit 55-57
+    m.put(60,10,'b'); m.put(65,10,'F'); m.put(70,10,'j'); m.put(76,10,'F');
+    m.plat(61,8,3); m.put(62,7,'o'); m.plat(72,7,3); m.put(73,6,'G');
+    m.put(78,10,'h'); m.spikes(68,10,2);
+    m.ground(84, cols-1, 11);             // 3-tile pit 81-83
+    m.put(86,10,'j'); m.put(91,10,'b'); m.put(96,10,'F');
+    m.plat(88,8,3); m.put(89,7,'o');
+    m.put(98,10,'a'); m.put(99,10,'o');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
+  /* ---- Level 9: Magma Works (LAVA pools + conveyors + turrets) ---- */
+  {
+    const cols = 108;
+    const m = makeLevel(cols, 'lava', 'Magma Works', 'Lava kills. Conveyors shove. Turrets fire.');
+    m.ground(0, 26, 11);
+    m.put(2,10,'P'); m.put(4,10,'a'); m.put(5,10,'a');
+    m.put(9,10,'b'); m.put(14,10,'u');               // turret on ground
+    m.lava(18, 10, 3);                                // lethal lava pool (jump over)
+    m.put(23,10,'j');
+    m.plat(11,8,3); m.put(12,7,'o'); m.block(20,9,1,2); m.put(20,8,'o');
+    m.ground(30, 52, 11);                 // 3-tile pit 27-29
+    m.conv(31, 11, 6, 1);                              // conveyor pushes right
+    m.put(34,10,'b'); m.put(40,10,'u'); m.put(46,10,'b');
+    m.lava(43, 10, 2); m.plat(36,7,3); m.put(37,6,'G');
+    m.put(49,10,'a');
+    m.ground(56, 80, 11);                 // 3-tile pit 53-55
+    m.conv(70, 11, 6, -1);                             // conveyor pushes left (toward you)
+    m.put(58,10,'u'); m.put(63,10,'b'); m.put(76,10,'j');
+    m.lava(66, 10, 3); m.plat(59,7,3); m.put(60,6,'G');
+    m.put(78,10,'h'); m.put(79,10,'a');
+    m.ground(84, cols-1, 11);             // 3-tile pit 81-83
+    m.put(86,10,'u'); m.put(92,10,'b'); m.lava(96, 10, 3); m.put(101,10,'j');
+    m.plat(88,8,3); m.put(89,7,'o');
+    m.put(103,10,'o'); m.put(104,10,'o');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
+  /* ---- Level 10: Treasure Trove (BONUS - short, gem-rich breather) ---- */
+  {
+    const cols = 60;
+    const m = makeLevel(cols, 'surface', 'Treasure Trove', 'A reward stop. Grab it all!');
+    m.ground(0, cols-1, 11);
+    m.put(2,10,'P');
+    for (let c=4;c<=20;c++) if (c%2===0) m.put(c,10,'o');
+    m.plat(6,8,3); m.put(6,7,'o'); m.put(7,7,'o'); m.put(8,7,'o');
+    m.plat(12,6,3); m.put(12,5,'o'); m.put(13,5,'G'); m.put(14,5,'o');
+    m.put(18,10,'h');
+    m.put(24,10,'y'); m.put(30,10,'y');                // only gentle grazers
+    m.plat(22,8,4); m.put(23,7,'o'); m.put(24,7,'o'); m.put(25,7,'G');
+    m.block(28,9,1,2); m.put(28,8,'o');
+    for (let c=32;c<=44;c++) if (c%2===0) m.put(c,10,'o');
+    m.plat(34,7,4); m.put(35,6,'o'); m.put(36,6,'G'); m.put(37,6,'o');
+    m.put(40,10,'h'); m.put(46,10,'a');
+    m.plat(48,8,4); m.put(49,7,'o'); m.put(50,7,'o'); m.put(51,7,'G');
+    m.put(54,10,'o'); m.put(55,10,'o');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
+  /* ---- Level 11: The Foundry (FACTORY finale - everything) ---- */
+  {
+    const cols = 116;
+    const m = makeLevel(cols, 'factory', 'The Foundry', 'Conveyors, turrets, bouncers. The end.');
+    m.ground(0, 24, 11);
+    m.put(2,10,'P'); m.put(4,10,'a'); m.put(5,10,'a');
+    m.put(8,10,'u'); m.conv(11, 11, 5, 1); m.put(16,10,'b'); m.put(20,10,'X');   // bouncer arena
+    m.plat(13,8,3); m.put(14,7,'o');
+    m.ground(28, 50, 11);                 // 3-tile pit 25-27
+    m.put(30,10,'u'); m.put(35,10,'b'); m.put(40,10,'F'); m.put(45,10,'X');
+    m.conv(36, 11, 6, -1); m.plat(31,7,3); m.put(32,6,'G');
+    m.put(47,8,'v'); m.put(47,4,'G'); m.put(49,10,'a');
+    m.ground(54, 78, 11);                 // 3-tile pit 51-53
+    m.put(56,10,'b'); m.put(61,10,'u'); m.put(66,10,'X'); m.put(72,10,'b');
+    m.lava(69, 10, 2); m.conv(57, 11, 5, 1);
+    m.plat(58,7,3); m.put(59,6,'G'); m.plat(74,7,3); m.put(75,6,'o');
+    m.put(77,10,'h');
+    m.ground(82, 104, 11);                // 3-tile pit 79-81
+    m.put(84,10,'u'); m.put(89,10,'X'); m.put(94,10,'b'); m.put(99,10,'F');
+    m.conv(90, 11, 6, 1); m.lava(96, 10, 2);
+    m.plat(85,8,3); m.put(86,7,'o'); m.plat(100,7,3); m.put(101,6,'G');
+    m.put(103,10,'a');
+    m.ground(108, cols-1, 11);            // 3-tile pit 105-107
+    m.put(110,10,'X'); m.put(112,10,'o'); m.put(113,10,'o');
+    m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
   return L;
 }
 
@@ -682,12 +878,14 @@ function makeEnemy(type, c, r) {
   if (type === 'bloog') return Object.assign(base, { x:c*16+1, y:r*16+2, w:14, h:12, vx:0, vy:0, speed:50, hp:1, fly:false, charge:true });
   if (type === 'flyer') return Object.assign(base, { x:c*16, y:r*16, w:14, h:10, vx:0, vy:0, speed:42, hp:1, fly:true, homing:false, homeY:r*16 - 16, wasBlocked:false, t:Math.random()*6 });
   if (type === 'hopper') return Object.assign(base, { x:c*16+1, y:r*16+2, w:14, h:13, vx:0, vy:0, speed:0, hp:1, fly:false, hop:true, onGround:false, hopTimer:0.4 + Math.random()*0.8 });
+  if (type === 'turret') return Object.assign(base, { x:c*16, y:r*16, w:14, h:15, vx:0, vy:0, speed:0, hp:2, fly:false, turret:true, fireTimer:0.5 + Math.random()*1.2 });
+  if (type === 'bouncer') return Object.assign(base, { x:c*16+2, y:r*16+2, w:12, h:12, vx:0, vy:0, speed:58, hp:999, fly:false, bounce:true, invincible:true, bounceVel:300, onGround:false });
   return base;
 }
-// Map a level-grid char to an enemy ('y' yorp, 'b' bloog, 'f' flyer, 'F' homing flyer, 'j' hopper)
-const isEnemyChar = ch => ch==='y'||ch==='b'||ch==='f'||ch==='F'||ch==='j';
+// Map a level-grid char to an enemy ('y' yorp, 'b' bloog, 'f' flyer, 'F' homing flyer, 'j' hopper, 'u' turret, 'X' bouncer)
+const isEnemyChar = ch => ch==='y'||ch==='b'||ch==='f'||ch==='F'||ch==='j'||ch==='u'||ch==='X';
 function enemyFromChar(ch, c, r) {
-  const type = ch==='y'?'yorp':ch==='b'?'bloog':ch==='j'?'hopper':'flyer';
+  const type = ch==='y'?'yorp':ch==='b'?'bloog':ch==='j'?'hopper':ch==='u'?'turret':ch==='X'?'bouncer':'flyer';
   const en = makeEnemy(type, c, r);
   if (ch === 'F') en.homing = true;
   return en;
@@ -700,7 +898,7 @@ const Game = {
   levelIndex: 0,
   grid: null, cols: 0, theme: 'surface', levelName: '',
   player: null,
-  enemies: [], pickups: [], shots: [], particles: [],
+  enemies: [], pickups: [], shots: [], eshots: [], platforms: [], particles: [],
   cam: { x: 0, y: 0 },
   lives: START_LIVES, hearts: MAX_HEARTS, ammo: START_AMMO,
   score: 0, gems: 0, gemsTotal: 0, levelScore: 0,
@@ -734,6 +932,7 @@ function loadLevel(idx) {
   Game.cols = lvl.cols; Game.theme = lvl.theme; Game.levelName = lvl.name;
   Game.grid = lvl.g.map(row => row.slice());
   Game.enemies = []; Game.pickups = []; Game.shots = []; Game.particles = [];
+  Game.eshots = []; Game.platforms = [];
   Game.gems = 0; Game.gemsTotal = 0; Game.levelScore = 0;
   Game.defeated = new Set();   // enemy spawns already cleared this level (persist across respawns)
   let start = { x: 32, y: 160 };
@@ -741,6 +940,11 @@ function loadLevel(idx) {
     for (let c = 0; c < lvl.cols; c++) {
       const ch = Game.grid[r][c];
       if (ch === 'P') { start = { x: c*16, y: r*16 }; Game.grid[r][c] = ' '; }
+      else if (ch === 'm' || ch === 'v') {        // moving platform: horizontal / vertical
+        Game.platforms.push({ x:c*16, y:r*16+4, w:32, h:8, axis: ch==='m'?'h':'v',
+          x0:c*16, y0:r*16+4, range: ch==='m'?44:40, speed:1.1, t:Math.random()*6, dx:0, dy:0 });
+        Game.grid[r][c] = ' ';
+      }
       else if (isEnemyChar(ch)) {
         Game.enemies.push(enemyFromChar(ch, c, r));
         Game.grid[r][c] = ' ';
@@ -859,7 +1063,7 @@ function respawn() {
   Game.player = newPlayer(Game.startPos);
   Game.player.invuln = 1.0;
   Game.cam.x = clamp(Game.player.x - W/2, 0, Game.cols*16 - W);
-  Game.shots = [];
+  Game.shots = []; Game.eshots = [];
   // restore non-collected pickups? keep collected. reset enemies positions of this level:
   loadEnemiesOnly();
   Game.state = 'play';
@@ -880,9 +1084,10 @@ function tileAt(c, r) {
   if (r < 0 || r >= ROWS) return ' ';
   return Game.grid[r][c];
 }
-const isSolid = ch => ch === '#' || ch === 'B';
+const isSolid = ch => ch === '#' || ch === 'B' || ch === '<' || ch === '>';  // conveyors are solid floor
 const isOneway = ch => ch === 'T';
-const isHazard = ch => ch === '^';
+const isHazard = ch => ch === '^' || ch === 'L';                              // spikes + lava = instant death
+const conveyorDir = ch => ch === '<' ? -1 : ch === '>' ? 1 : 0;
 
 function moveX(e) {
   e.x += e.vx * DT;
@@ -925,6 +1130,38 @@ function touchingHazard(e) {
   return false;
 }
 
+/* ----- Moving platforms & conveyor belts ----- */
+function updatePlatforms(dt) {
+  if (!Game.platforms) return;
+  for (const pf of Game.platforms) {
+    pf.t += dt;
+    const ox = pf.x, oy = pf.y;
+    if (pf.axis === 'h') pf.x = pf.x0 + Math.sin(pf.t * pf.speed) * pf.range;
+    else pf.y = pf.y0 + Math.sin(pf.t * pf.speed) * pf.range;
+    pf.dx = pf.x - ox; pf.dy = pf.y - oy;
+  }
+}
+function ridePlatforms(e) {
+  if (!Game.platforms) return;
+  for (const pf of Game.platforms) {
+    const overX = e.x + e.w > pf.x + 1 && e.x < pf.x + pf.w - 1;
+    const feet = e.y + e.h;
+    if (e.vy >= 0 && overX && feet >= pf.y - 1 && feet <= pf.y + 9) {
+      e.y = pf.y - e.h; e.vy = 0; e.onGround = true;
+      e.x += pf.dx;                                  // carried horizontally
+      if (pf.dx !== 0) { moveX(e); }                 // re-resolve against walls after the carry
+    }
+  }
+}
+function applyConveyor(e, dt) {
+  if (!e.onGround) return;
+  const fr = Math.floor((e.y + e.h) / 16);
+  const c0 = Math.floor((e.x + 2) / 16), c1 = Math.floor((e.x + e.w - 2) / 16);
+  let dir = 0;
+  for (let c = c0; c <= c1; c++) { const d = conveyorDir(tileAt(c, fr)); if (d) { dir = d; break; } }
+  if (dir) { const sv = e.vx; e.vx = dir * 70; moveX(e); e.vx = sv; }
+}
+
 /* --------------------------- PARTICLES ----------------------------- */
 function spawnBurst(x, y, color, n, spd) {
   for (let i = 0; i < n; i++) {
@@ -947,14 +1184,17 @@ function updatePlay(dt) {
   Game.timer += dt;
 
   // ---- horizontal input ----
+  const icy = THEMES[Game.theme].icy && p.onGround;     // slippery footing on ice
+  const accel = icy ? RUN_ACCEL * 0.45 : RUN_ACCEL;
+  const frict = icy ? 140 : RUN_FRICT;
   const dirIn = (held.right?1:0) - (held.left?1:0);
   if (dirIn !== 0) {
-    p.vx += dirIn * RUN_ACCEL * dt;
+    p.vx += dirIn * accel * dt;
     p.vx = clamp(p.vx, -RUN_SPEED, RUN_SPEED);
     p.dir = dirIn;
   } else {
-    if (p.vx > 0) p.vx = Math.max(0, p.vx - RUN_FRICT*dt);
-    else if (p.vx < 0) p.vx = Math.min(0, p.vx + RUN_FRICT*dt);
+    if (p.vx > 0) p.vx = Math.max(0, p.vx - frict*dt);
+    else if (p.vx < 0) p.vx = Math.min(0, p.vx + frict*dt);
   }
 
   // ---- pogo toggle ----
@@ -990,9 +1230,12 @@ function updatePlay(dt) {
   }
 
   // ---- move + collide ----
+  updatePlatforms(dt);
   moveX(p);
   moveY(p);
   if (p.hitCeil) p.vy = 0;
+  ridePlatforms(p);                 // land on / be carried by moving platforms
+  applyConveyor(p, dt);             // conveyor belts push you while grounded
 
   // landing dust
   if (!wasGround && p.onGround && Math.abs(p.vy) < 1) spawnDust(p.x + p.w/2, p.y + p.h);
@@ -1070,6 +1313,24 @@ function updatePlay(dt) {
         const footR = Math.floor((e.y+e.h+1)/16);
         if (!isSolid(tileAt(aheadC, footR)) && !isOneway(tileAt(aheadC, footR))) e.dir *= -1;
       }
+    } else if (e.turret) {
+      // stationary cannon: fires down its lane when the player is roughly aligned in front
+      e.fireTimer -= dt;
+      e.dir = (p.x + p.w/2 >= e.x + e.w/2) ? 1 : -1;
+      const dx = Math.abs((p.x+p.w/2) - (e.x+e.w/2)), dy = Math.abs((p.y+p.h/2) - (e.y+e.h/2));
+      if (e.fireTimer <= 0 && dx < 170 && dy < 26) {
+        e.fireTimer = 1.5;
+        Game.eshots.push({ x: e.x + (e.dir>0 ? e.w : -6), y: e.y + 6, w:6, h:4, vx: e.dir*155, life:3 });
+        SFX.shoot();
+      }
+    } else if (e.bounce) {
+      // invincible bouncing hazard — perpetual bounce, reflects off walls, must be dodged
+      e.vy += GRAV * dt; if (e.vy > MAX_FALL) e.vy = MAX_FALL;
+      e.vx = e.dir * e.speed;
+      moveX(e);
+      if (e.hitWall) e.dir *= -1;
+      moveY(e);
+      if (e.onGround) e.vy = -e.bounceVel;
     } else {
       // ground walker; "charge" types speed up + steer toward a nearby same-height player
       e.vy += GRAV * dt; if (e.vy > MAX_FALL) e.vy = MAX_FALL;
@@ -1091,8 +1352,10 @@ function updatePlay(dt) {
     // shot collision
     for (const s of Game.shots) {
       if (s.life > 0 && aabb(s, e)) {
-        s.life = 0; e.hp--;
-        spawnBurst(e.x+e.w/2, e.y+e.h/2, '#fff', 6, 80);
+        s.life = 0;
+        if (e.invincible) { spawnBurst(e.x+e.w/2, e.y+e.h/2, EGA.white, 4, 60); SFX.bump(); continue; }
+        e.hp--;
+        spawnBurst(e.x+e.w/2, e.y+e.h/2, EGA.white, 6, 80);
         if (e.hp <= 0) { defeatEnemy(e); }
         else SFX.bump();
       }
@@ -1101,6 +1364,15 @@ function updatePlay(dt) {
     if (!e.dead && p.invuln <= 0 && aabb(p, e)) hurtPlayer(e);
   }
   Game.enemies = Game.enemies.filter(e => !(e.dead && e.dyTimer <= 0));
+
+  // ---- enemy projectiles ----
+  for (const es of Game.eshots) {
+    es.x += es.vx * dt; es.life -= dt;
+    const c = Math.floor((es.vx>0 ? es.x+es.w : es.x)/16), r = Math.floor((es.y+es.h/2)/16);
+    if (isSolid(tileAt(c, r))) { es.life = 0; spawnBurst(es.x, es.y, EGA.bred, 3, 50); }
+    else if (p.invuln <= 0 && aabb(p, es)) { es.life = 0; hurtPlayer(es); }
+  }
+  Game.eshots = Game.eshots.filter(es => es.life > 0);
 
   // ---- pickups ----
   for (const k of Game.pickups) {
@@ -1223,6 +1495,21 @@ function drawTile(ch, sx, sy, c, r) {
       bx.beginPath(); bx.moveTo(x, sy+16); bx.lineTo(x+2, sy+5); bx.lineTo(x+4, sy+16); bx.closePath(); bx.fill();
     }
     bx.fillStyle = t.spikeD; bx.fillRect(sx, sy+14, 16, 2);   // dark base — separates spikes from the ground cap
+  } else if (ch === 'L') {
+    // lava (instant death) — bright, churning
+    const ph = Math.sin(Game.timer*3 + c) ;
+    bx.fillStyle = EGA.red; bx.fillRect(sx, sy, 16, 16);
+    bx.fillStyle = EGA.bred; bx.fillRect(sx, sy + (ph>0?1:2), 16, 4);
+    bx.fillStyle = EGA.yellow;
+    bx.fillRect(sx + ((c*3 + Math.floor(Game.timer*4)) % 12), sy+1, 3, 1);
+    bx.fillRect(sx + ((c*5 + Math.floor(Game.timer*5)) % 12), sy+5, 2, 1);
+  } else if (ch === '<' || ch === '>') {
+    // conveyor belt — solid floor that pushes you
+    bx.fillStyle = t.block; bx.fillRect(sx, sy, 16, 16);
+    bx.fillStyle = t.blockD; bx.fillRect(sx, sy, 16, 2); bx.fillRect(sx, sy+14, 16, 2);
+    bx.fillStyle = t.accent;
+    const off = Math.floor(Game.timer * 20) % 8, d = ch === '>' ? 1 : -1;
+    for (let i = -1; i < 3; i++) { const ax = sx + ((i*8 + d*off) & 15); bx.fillRect(ax, sy+6, 4, 4); }
   } else if (ch === 'D') {
     // glowing exit door
     const pulse = 0.5 + 0.5*Math.sin(Game.timer*4);
@@ -1243,6 +1530,17 @@ function drawWorld() {
     const ch = Game.grid[r][c];
     if (ch === ' ') continue;
     drawTile(ch, c*16 - camx, r*16, c, r);
+  }
+
+  // moving platforms
+  { const t = THEMES[Game.theme];
+    for (const pf of Game.platforms) {
+      const sx = Math.floor(pf.x - camx), sy = Math.floor(pf.y);
+      bx.fillStyle = t.block; bx.fillRect(sx, sy, pf.w, pf.h);
+      bx.fillStyle = t.accent; bx.fillRect(sx, sy, pf.w, 2);
+      bx.fillStyle = t.blockD; bx.fillRect(sx, sy+pf.h-2, pf.w, 2);
+      bx.fillStyle = t.blockD; bx.fillRect(sx+3, sy+3, 2, 2); bx.fillRect(sx+pf.w-5, sy+3, 2, 2);
+    }
   }
 
   // pickups
@@ -1267,7 +1565,9 @@ function drawWorld() {
       bx.fillStyle = '#fff'; bx.fillRect(sx, sy+e.h-3, e.w, 3); bx.globalAlpha = 1;
       continue;
     }
-    const fr = e.hop ? (e.onGround ? 0 : 1) : (Math.floor(e.anim) % 2);
+    const fr = e.hop ? (e.onGround ? 0 : 1)
+             : e.turret ? (e.fireTimer < 0.25 ? 1 : 0)
+             : (Math.floor(e.anim) % 2);
     const key = e.type + '_' + fr + '_' + (e.dir>0?'R':'L');
     const spr = SPR[key];
     if (spr) bx.drawImage(spr, sx + (e.w-spr.width)/2, sy + (e.h-spr.height));
@@ -1277,7 +1577,13 @@ function drawWorld() {
   for (const s of Game.shots) {
     const sx = Math.floor(s.x - camx), sy = Math.floor(s.y);
     bx.fillStyle = C.gunGlow; bx.fillRect(sx, sy, 6, 4);
-    bx.fillStyle = '#fff'; bx.fillRect(sx + (s.dir>0?4:0), sy+1, 2, 2);
+    bx.fillStyle = EGA.white; bx.fillRect(sx + (s.dir>0?4:0), sy+1, 2, 2);
+  }
+  // enemy shots
+  for (const es of Game.eshots) {
+    const sx = Math.floor(es.x - camx), sy = Math.floor(es.y);
+    bx.fillStyle = EGA.bred; bx.fillRect(sx, sy, 6, 4);
+    bx.fillStyle = EGA.yellow; bx.fillRect(sx + (es.vx>0?4:0), sy+1, 2, 2);
   }
 
   // player
@@ -1567,6 +1873,7 @@ function update(dt) {
 }
 
 function render() {
+  updateTouchVisibility();
   bx.save();
   // screen shake
   if (Game.shake > 0 && (Game.state==='play'||Game.state==='dead')) {

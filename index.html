@@ -18,7 +18,7 @@
   #game {
     display: block; position: absolute; top: 0; left: 0;
     image-rendering: pixelated; image-rendering: crisp-edges;
-    background: #05060d;
+    background: #05060d; touch-action: none;
   }
   #loading {
     position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -43,7 +43,7 @@
     -webkit-tap-highlight-color: transparent; touch-action: none;
   }
   #touch .acts button { border-radius: 50%; }
-  #touch button:active { background: rgba(60,120,90,0.7); }
+  #touch button:active, #touch button.on { background: rgba(60,180,110,0.8); }
 </style>
 </head>
 <body>
