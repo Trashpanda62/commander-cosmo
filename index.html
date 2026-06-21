@@ -32,14 +32,17 @@
     pointer-events: none; justify-content: space-between; align-items: flex-end;
     padding: 0 14px 22px;
   }
-  #touch .pad, #touch .acts { display: flex; gap: 12px; pointer-events: auto; }
+  #touch .dpad { display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: auto; }
+  #touch .dpad-mid { display: flex; gap: 30px; }
+  #touch .acts { display: flex; gap: 12px; pointer-events: auto; align-items: flex-end; }
   #touch button {
-    width: 58px; height: 58px; border-radius: 50%;
+    width: 54px; height: 54px; border-radius: 12px;
     border: 2px solid rgba(255,255,255,0.4);
     background: rgba(20,30,50,0.5); color: #fff;
     font-family: inherit; font-size: 9px;
-    -webkit-tap-highlight-color: transparent;
+    -webkit-tap-highlight-color: transparent; touch-action: none;
   }
+  #touch .acts button { border-radius: 50%; }
   #touch button:active { background: rgba(60,120,90,0.7); }
 </style>
 </head>
@@ -50,9 +53,13 @@
     <div class="sub">loading… (click or press a key for sound)</div>
   </div>
   <div id="touch">
-    <div class="pad">
-      <button id="btn-left">◀</button>
-      <button id="btn-right">▶</button>
+    <div class="dpad">
+      <button id="btn-up">▲</button>
+      <div class="dpad-mid">
+        <button id="btn-left">◀</button>
+        <button id="btn-right">▶</button>
+      </div>
+      <button id="btn-down">▼</button>
     </div>
     <div class="acts">
       <button id="btn-pogo">POGO</button>
