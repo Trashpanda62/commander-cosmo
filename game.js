@@ -145,7 +145,7 @@ function updateTouchVisibility() {
 /* ---------------------------- AUDIO -------------------------------- */
 let actx = null, master = null, musicGain = null, sfxGain = null;
 let audioReady = false;
-let soundOn = true, musicOn = false, muted = false;   // music opt-in; N = master mute
+let soundOn = true, musicOn = true, muted = false;    // music autoplays once audio unlocks; N = master mute
 const MASTER_VOL = 0.6;
 
 function applyMute() { if (master) master.gain.value = muted ? 0 : MASTER_VOL; }
@@ -165,6 +165,7 @@ function ensureAudio() {
     musicGain = actx.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
     sfxGain = actx.createGain(); sfxGain.gain.value = 0.9; sfxGain.connect(master);
     audioReady = true;
+    if (actx.state === 'suspended') actx.resume();   // unlock within the user gesture (mobile)
     Music.start();
   } catch (e) { audioReady = false; }
 }
@@ -431,6 +432,19 @@ function bakeAll() {
     SPR['bouncer_'+fr+'_R'] = c; SPR['bouncer_'+fr+'_L'] = flip(c);
   }
 
+  // BOSS: the Overseer — a hovering mech-eye (28x22), fr toggles eye + thrusters
+  for (const fr of [0, 1]) {
+    const c = newSprite(28, 22); const g = c.getContext('2d');
+    P(g,8,0,2,3,EGA.lgray); P(g,18,0,2,3,EGA.lgray);                 // antennae
+    P(g,2,6,24,8,EGA.dgray);                                          // hull mid
+    P(g,4,2,20,13,EGA.dgray); P(g,4,2,20,2,EGA.lgray); P(g,4,13,20,2,EGA.black);
+    P(g,5,4,2,2,EGA.lgray); P(g,21,4,2,2,EGA.lgray);                 // rivets
+    P(g,9,5,10,8,EGA.bred); P(g,11,7,5,5,fr?EGA.yellow:EGA.white);   // eye
+    P(g,11,8,2,2,EGA.black);
+    P(g,5,15,5,5,fr?EGA.bcyan:EGA.cyan); P(g,18,15,5,5,fr?EGA.cyan:EGA.bcyan); // thrusters
+    SPR['boss_'+fr+'_R'] = c; SPR['boss_'+fr+'_L'] = flip(c);
+  }
+
   // gem (EGA cyan crystal) — animated shimmer handled at draw
   const gem = newSprite(10,10); { const g = gem.getContext('2d');
     P(g,4,1,2,1,EGA.bcyan); P(g,3,2,4,1,EGA.bcyan); P(g,2,3,6,2,EGA.cyan);
@@ -548,12 +562,50 @@ function makeLevel(cols, theme, name, hint) {
   };
 }
 
+// Deterministically fill a column range [c0..c1] of an already-grounded level with extra
+// content (pits, platforms, hop-blocks, jump-over hazards, enemies, pickups) to lengthen it.
+// Invariants kept: pits <= 3 tiles, >=3 ground after each pit, hazards sit on solid ground with
+// run-up + landing room, nothing within 4 cols of the exit. Same seed => same layout every time.
+function decorate(m, c0, c1, theme, seed) {
+  let s = (seed * 2654435761) >>> 0;
+  const rnd = () => { s = (s * 1103515245 + 12345) >>> 0; return (s >>> 8) / 0x1000000; };
+  const pool = ({
+    surface:['y','b','f','j'], cavern:['f','F','b','y'], fortress:['b','f','j','b'],
+    ice:['y','b','f','j'], forest:['j','b','F','j'], lava:['b','u','j','b'], factory:['b','u','X','F'],
+  })[theme] || ['y','b','f'];
+  const pick = () => pool[(rnd()*pool.length)|0];
+  let c = c0 + 2;
+  while (c < c1 - 4) {
+    const roll = rnd();
+    if (roll < 0.26) {                       // pit (2-3 wide)
+      const w = rnd() < 0.4 ? 3 : 2;
+      for (let i = 0; i < w; i++) { m.set(c+i, 11, ' '); m.set(c+i, 12, ' '); }
+      c += w + 3;
+    } else if (roll < 0.48) {                // floating platform + gem (+ maybe an enemy below)
+      const ph = rnd() < 0.5 ? 8 : 7;
+      m.plat(c, ph, 3); m.put(c+1, ph-1, rnd() < 0.3 ? 'G' : 'o');
+      if (rnd() < 0.55) m.put(c+1, 10, pick());
+      c += 4 + ((rnd()*3)|0);
+    } else if (roll < 0.6) {                 // jump-over hazard on flat ground
+      if (theme === 'lava') m.lava(c, 10, 2); else m.spikes(c, 10, 2);
+      c += 5;
+    } else if (roll < 0.72) {                // 2-tall hop block + gem
+      m.block(c, 9, 1, 2); m.put(c, 8, 'o');
+      c += 3 + ((rnd()*2)|0);
+    } else {                                 // enemy + pickup
+      m.put(c, 10, pick());
+      if (rnd() < 0.5) m.put(c+2, 10, rnd() < 0.3 ? 'a' : 'o');
+      c += 4 + ((rnd()*3)|0);
+    }
+  }
+}
+
 function buildLevels() {
   const L = [];
 
   /* ---- Level 1: Verdant Outpost (surface, gentle) ---- */
   {
-    const cols = 84;
+    const cols = 140;
     const m = makeLevel(cols, 'surface', 'Verdant Outpost', 'Find the exit. Hop the gaps!');
     m.ground(0, 17, 11);
     m.put(2, 10, 'P');
@@ -577,13 +629,14 @@ function buildLevels() {
     m.block(70,9,1,2); m.put(70,8,'o');
     m.put(74,10,'h');               // extra life reward
     m.put(78,10,'o'); m.put(79,10,'o');
+    decorate(m, 84, cols-2, 'surface', 1);
     m.put(cols-2, 10, 'D');
     L.push(m);
   }
 
   /* ---- Level 2: Crystal Caves (cavern, vertical + flyers) ---- */
   {
-    const cols = 92;
+    const cols = 150;
     const m = makeLevel(cols, 'cavern', 'Crystal Caves', 'Mind the flyers and the spikes.');
     m.ground(0, 10, 11);
     m.put(2, 10, 'P');
@@ -610,13 +663,14 @@ function buildLevels() {
     m.plat(70,8,3); m.put(71,7,'o'); m.put(72,7,'o');
     m.put(75,10,'f'); m.put(78,10,'h');
     m.plat(80,7,4); m.put(81,6,'o'); m.put(82,6,'o'); m.put(83,6,'o');
+    decorate(m, 92, cols-2, 'cavern', 2);
     m.put(cols-2,10,'D');
     L.push(m);
   }
 
   /* ---- Level 3: Iron Fortress (fortress, tougher) ---- */
   {
-    const cols = 100;
+    const cols = 162;
     const m = makeLevel(cols, 'fortress', 'Iron Fortress', 'The boss-bots run hot. Keep moving.');
     // -- opening: continuous safe floor; hop a 2-tall block, then a 2-wide spike strip --
     m.ground(0, 31, 11);
@@ -645,13 +699,14 @@ function buildLevels() {
     m.plat(74,8,3); m.put(75,7,'o'); m.plat(80,7,3); m.put(81,6,'o');
     m.block(86,9,1,2); m.put(86,8,'o');
     m.put(90,10,'a'); m.put(92,10,'o'); m.put(93,10,'o');
+    decorate(m, 100, cols-2, 'fortress', 3);
     m.put(cols-2,10,'D');
     L.push(m);
   }
 
   /* ---- Level 4: Tangled Thicket (surface, hoppers + a homing flyer) ---- */
   {
-    const cols = 96;
+    const cols = 156;
     const m = makeLevel(cols, 'surface', 'Tangled Thicket', 'Hoppers leap — time your shots.');
     m.ground(0, 30, 11);
     m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'o');
@@ -677,13 +732,14 @@ function buildLevels() {
     m.put(81,10,'j'); m.put(85,10,'b'); m.put(89,10,'F');
     m.plat(82,8,3); m.put(83,7,'o');
     m.put(91,10,'o'); m.put(92,10,'o');
+    decorate(m, 96, cols-2, 'surface', 4);
     m.put(cols-2,10,'D');
     L.push(m);
   }
 
   /* ---- Level 5: Deep Hollows (cavern, vertical climb + flyer swarm) ---- */
   {
-    const cols = 104;
+    const cols = 166;
     const m = makeLevel(cols, 'cavern', 'Deep Hollows', 'Climb past the swarm. Watch your footing.');
     m.ground(0, 12, 11);
     m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'a');
@@ -708,13 +764,14 @@ function buildLevels() {
     m.put(89,10,'F'); m.put(93,10,'j'); m.put(97,10,'b');
     m.plat(90,8,3); m.put(91,7,'o');
     m.put(99,10,'o'); m.put(100,10,'o');
+    decorate(m, 104, cols-2, 'cavern', 5);
     m.put(cols-2,10,'D');
     L.push(m);
   }
 
   /* ---- Level 6: The Core (fortress, the gauntlet) ---- */
   {
-    const cols = 112;
+    const cols = 174;
     const m = makeLevel(cols, 'fortress', 'The Core', 'Everything at once. Good luck, Commander.');
     m.ground(0, 14, 11);
     m.put(2,10,'P'); m.put(4,10,'a'); m.put(5,10,'a');
@@ -737,13 +794,14 @@ function buildLevels() {
     m.put(91,10,'F'); m.put(95,10,'b'); m.put(99,10,'j'); m.put(103,10,'F');
     m.plat(92,8,3); m.put(93,7,'o');
     m.put(105,10,'o'); m.put(106,10,'o'); m.put(108,10,'a');
+    decorate(m, 112, cols-2, 'fortress', 6);
     m.put(cols-2,10,'D');
     L.push(m);
   }
 
   /* ---- Level 7: Frostbite Caverns (ICE - slippery footing, vertical lifts) ---- */
   {
-    const cols = 98;
+    const cols = 158;
     const m = makeLevel(cols, 'ice', 'Frostbite Caverns', 'Slippery ice! Brake early.');
     m.ground(0, 24, 11);
     m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'o'); m.put(6,10,'a');
@@ -763,13 +821,14 @@ function buildLevels() {
     m.put(80,10,'F'); m.put(85,10,'b'); m.put(90,10,'j');
     m.plat(82,8,3); m.put(83,7,'o');
     m.put(92,10,'o'); m.put(93,10,'o');
+    decorate(m, 98, cols-2, 'ice', 7);
     m.put(cols-2,10,'D');
     L.push(m);
   }
 
   /* ---- Level 8: Whispering Woods (FOREST - hoppers, flyers, lifts) ---- */
   {
-    const cols = 104;
+    const cols = 164;
     const m = makeLevel(cols, 'forest', 'Whispering Woods', 'The brush is alive with hoppers.');
     m.ground(0, 28, 11);
     m.put(2,10,'P'); m.put(4,10,'o'); m.put(5,10,'o');
@@ -790,13 +849,14 @@ function buildLevels() {
     m.put(86,10,'j'); m.put(91,10,'b'); m.put(96,10,'F');
     m.plat(88,8,3); m.put(89,7,'o');
     m.put(98,10,'a'); m.put(99,10,'o');
+    decorate(m, 104, cols-2, 'forest', 8);
     m.put(cols-2,10,'D');
     L.push(m);
   }
 
   /* ---- Level 9: Magma Works (LAVA pools + conveyors + turrets) ---- */
   {
-    const cols = 108;
+    const cols = 168;
     const m = makeLevel(cols, 'lava', 'Magma Works', 'Lava kills. Conveyors shove. Turrets fire.');
     m.ground(0, 26, 11);
     m.put(2,10,'P'); m.put(4,10,'a'); m.put(5,10,'a');
@@ -818,6 +878,7 @@ function buildLevels() {
     m.put(86,10,'u'); m.put(92,10,'b'); m.lava(96, 10, 3); m.put(101,10,'j');
     m.plat(88,8,3); m.put(89,7,'o');
     m.put(103,10,'o'); m.put(104,10,'o');
+    decorate(m, 108, cols-2, 'lava', 9);
     m.put(cols-2,10,'D');
     L.push(m);
   }
@@ -846,8 +907,8 @@ function buildLevels() {
 
   /* ---- Level 11: The Foundry (FACTORY finale - everything) ---- */
   {
-    const cols = 116;
-    const m = makeLevel(cols, 'factory', 'The Foundry', 'Conveyors, turrets, bouncers. The end.');
+    const cols = 178;
+    const m = makeLevel(cols, 'factory', 'The Foundry', 'Conveyors, turrets, bouncers. Reach the lair.');
     m.ground(0, 24, 11);
     m.put(2,10,'P'); m.put(4,10,'a'); m.put(5,10,'a');
     m.put(8,10,'u'); m.conv(11, 11, 5, 1); m.put(16,10,'b'); m.put(20,10,'X');   // bouncer arena
@@ -868,7 +929,22 @@ function buildLevels() {
     m.put(103,10,'a');
     m.ground(108, cols-1, 11);            // 3-tile pit 105-107
     m.put(110,10,'X'); m.put(112,10,'o'); m.put(113,10,'o');
+    decorate(m, 116, cols-2, 'factory', 11);
     m.put(cols-2,10,'D');
+    L.push(m);
+  }
+
+  /* ---- Level 12: Overlord's Lair (BOSS arena - defeat the Overseer to win) ---- */
+  {
+    const cols = 30;
+    const m = makeLevel(cols, 'fortress', "Overlord's Lair", 'Defeat the Overseer!');
+    m.ground(0, cols-1, 11);
+    for (let r = 0; r < 11; r++) { m.put(0,r,'B'); m.put(1,r,'B'); m.put(cols-2,r,'B'); m.put(cols-1,r,'B'); }  // containment walls
+    m.put(4,10,'P');
+    m.plat(5,7,3); m.plat(cols-9,7,3); m.plat(12,5,5);     // cover platforms
+    m.put(7,10,'a'); m.put(22,10,'a'); m.put(14,4,'a'); m.put(19,10,'a');   // ammo refills (shoot the boss!)
+    m.put(6,6,'o'); m.put(23,6,'o'); m.put(10,10,'h');
+    m.put(13,3,'Z');                                        // the boss (no exit door — beat it to win)
     L.push(m);
   }
 
@@ -884,12 +960,13 @@ function makeEnemy(type, c, r) {
   if (type === 'hopper') return Object.assign(base, { x:c*16+1, y:r*16+2, w:14, h:13, vx:0, vy:0, speed:0, hp:1, fly:false, hop:true, onGround:false, hopTimer:0.4 + Math.random()*0.8 });
   if (type === 'turret') return Object.assign(base, { x:c*16, y:r*16, w:14, h:15, vx:0, vy:0, speed:0, hp:2, fly:false, turret:true, fireTimer:0.5 + Math.random()*1.2 });
   if (type === 'bouncer') return Object.assign(base, { x:c*16+2, y:r*16+2, w:12, h:12, vx:0, vy:0, speed:58, hp:999, fly:false, bounce:true, invincible:true, bounceVel:300, onGround:false });
+  if (type === 'boss') return Object.assign(base, { x:c*16, y:r*16, w:28, h:22, vx:0, vy:0, speed:44, hp:12, maxHp:12, fly:true, boss:true, homeY:r*16, t:Math.random()*6, attackTimer:1.4, flash:0 });
   return base;
 }
-// Map a level-grid char to an enemy ('y' yorp, 'b' bloog, 'f' flyer, 'F' homing flyer, 'j' hopper, 'u' turret, 'X' bouncer)
-const isEnemyChar = ch => ch==='y'||ch==='b'||ch==='f'||ch==='F'||ch==='j'||ch==='u'||ch==='X';
+// Map a level-grid char to an enemy (y yorp, b bloog, f flyer, F homing flyer, j hopper, u turret, X bouncer, Z boss)
+const isEnemyChar = ch => ch==='y'||ch==='b'||ch==='f'||ch==='F'||ch==='j'||ch==='u'||ch==='X'||ch==='Z';
 function enemyFromChar(ch, c, r) {
-  const type = ch==='y'?'yorp':ch==='b'?'bloog':ch==='j'?'hopper':ch==='u'?'turret':ch==='X'?'bouncer':'flyer';
+  const type = ch==='y'?'yorp':ch==='b'?'bloog':ch==='j'?'hopper':ch==='u'?'turret':ch==='X'?'bouncer':ch==='Z'?'boss':'flyer';
   const en = makeEnemy(type, c, r);
   if (ch === 'F') en.homing = true;
   return en;
@@ -1293,7 +1370,21 @@ function updatePlay(dt) {
   for (const e of Game.enemies) {
     if (e.dead) { e.dyTimer -= dt; continue; }
     e.anim += dt * 6;
-    if (e.fly) {
+    if (e.boss) {
+      // The Overseer: hovers, tracks the player horizontally, rains a 3-shot spread (faster when hurt)
+      e.t += dt; if (e.flash > 0) e.flash -= dt;
+      const tx = clamp(p.x + p.w/2 - e.w/2, 32, Game.cols*16 - e.w - 32);
+      e.x += Math.sign(tx - e.x) * Math.min(Math.abs(tx - e.x), e.speed * dt);
+      e.dir = (p.x + p.w/2 >= e.x + e.w/2) ? 1 : -1;
+      e.y = e.homeY + Math.sin(e.t * 1.6) * 24;
+      e.attackTimer -= dt;
+      if (e.attackTimer <= 0) {
+        e.attackTimer = e.hp <= e.maxHp/2 ? 1.25 : 1.9;        // enrage at half health
+        const cx = e.x + e.w/2, cy = e.y + e.h - 2;
+        for (const vx of [-95, 0, 95]) Game.eshots.push({ x:cx-3, y:cy, w:6, h:5, vx, vy:135, life:3.5 });
+        SFX.shoot();
+      }
+    } else if (e.fly) {
       e.t += dt;
       if (e.homing) {
         // gentle aerial pursuit — drift toward the player in x and y with a soft bob
@@ -1371,8 +1462,9 @@ function updatePlay(dt) {
         s.life = 0;
         if (e.invincible) { spawnBurst(e.x+e.w/2, e.y+e.h/2, EGA.white, 4, 60); SFX.bump(); continue; }
         e.hp--;
+        if (e.boss) e.flash = 0.12;
         spawnBurst(e.x+e.w/2, e.y+e.h/2, EGA.white, 6, 80);
-        if (e.hp <= 0) { defeatEnemy(e); }
+        if (e.hp <= 0) { if (e.boss) defeatBoss(e); else defeatEnemy(e); }
         else SFX.bump();
       }
     }
@@ -1381,10 +1473,10 @@ function updatePlay(dt) {
   }
   Game.enemies = Game.enemies.filter(e => !(e.dead && e.dyTimer <= 0));
 
-  // ---- enemy projectiles ----
+  // ---- enemy projectiles (turret = horizontal, boss = spread w/ vy) ----
   for (const es of Game.eshots) {
-    es.x += es.vx * dt; es.life -= dt;
-    const c = Math.floor((es.vx>0 ? es.x+es.w : es.x)/16), r = Math.floor((es.y+es.h/2)/16);
+    es.x += es.vx * dt; es.y += (es.vy || 0) * dt; es.life -= dt;
+    const c = Math.floor((es.x + es.w/2)/16), r = Math.floor((es.y + es.h/2)/16);
     if (isSolid(tileAt(c, r))) { es.life = 0; spawnBurst(es.x, es.y, EGA.bred, 3, 50); }
     else if (p.invuln <= 0 && aabb(p, es)) { es.life = 0; hurtPlayer(es); }
   }
@@ -1425,6 +1517,17 @@ function defeatEnemy(e) {
   spawnBurst(e.x+e.w/2, e.y+e.h/2, e.type==='flyer'?EGA.yellow:e.type==='bloog'?EGA.bmagenta:EGA.bgreen, 12, 120);
   Game.shake = Math.max(Game.shake, 4);
   SFX.enemy();
+}
+
+function defeatBoss(e) {
+  e.dead = true; e.dyTimer = 0.6;
+  Game.defeated.add(e.sc + ',' + e.sr);
+  Game.score += 5000; Game.levelScore += 5000;
+  for (let i = 0; i < 6; i++)
+    spawnBurst(e.x + Math.random()*e.w, e.y + Math.random()*e.h, [EGA.yellow,EGA.bred,EGA.white,EGA.bcyan][i%4], 14, 150);
+  Game.shake = 16; Game.flash = 1; Game.eshots = [];
+  SFX.win();
+  levelClear();         // boss is in the final level -> level-clear cascades to victory
 }
 
 function hurtPlayer(e) {
@@ -1587,6 +1690,7 @@ function drawWorld() {
     const key = e.type + '_' + fr + '_' + (e.dir>0?'R':'L');
     const spr = SPR[key];
     if (spr) bx.drawImage(spr, sx + (e.w-spr.width)/2, sy + (e.h-spr.height));
+    if (e.boss && e.flash > 0) { bx.globalAlpha = 0.6; bx.fillStyle = EGA.white; bx.fillRect(sx, sy, e.w, e.h); bx.globalAlpha = 1; }
   }
 
   // shots
@@ -1657,6 +1761,16 @@ function drawHUD() {
   txt('x' + Game.ammo, 228, 4, 7, Game.ammo>0?EGA.white:EGA.bred);
   // gems
   txt(Game.gems + '/' + Game.gemsTotal, W-4, 4, 7, EGA.bcyan, 'right');
+  // boss health bar (when a boss is alive on-screen)
+  const boss = Game.enemies && Game.enemies.find(e => e.boss && !e.dead);
+  if (boss) {
+    const bw = 160, bx0 = (W-bw)/2, by0 = 18;
+    txt('OVERSEER', W/2, 18, 6, EGA.bred, 'center', EGA.black);
+    bx.fillStyle = EGA.black; bx.fillRect(bx0-1, by0+8, bw+2, 6);
+    bx.fillStyle = EGA.dgray; bx.fillRect(bx0, by0+9, bw, 4);
+    bx.fillStyle = EGA.bred; bx.fillRect(bx0, by0+9, Math.max(0, Math.round(bw * boss.hp / boss.maxHp)), 4);
+    bx.fillStyle = EGA.yellow; bx.fillRect(bx0, by0+9, Math.max(0, Math.round(bw * boss.hp / boss.maxHp)), 1);
+  }
 }
 
 function drawVignette() {
