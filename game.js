@@ -1324,6 +1324,7 @@ function respawn() {
   Game.hearts = MAX_HEARTS;
   Game.player = newPlayer(Game.startPos);
   Game.player.invuln = 1.0;
+  Game.player.hazImmune = 1.0;       // mirror i-frames for hazards too, so a hazard-adjacent checkpoint can't death-loop
   Game.cam.x = clamp(Game.player.x - W/2, 0, Game.cols*16 - W);
   Game.shots = []; Game.eshots = [];
   Game.platforms = buildPlatforms(Game.levels[Game.levelIndex]);  // reset to deterministic phase
@@ -2118,14 +2119,15 @@ function drawWorldMap() {
   bx.drawImage(SPR['hero_'+frame+'_'+(h.dir>0?'R':'L')], Math.floor(h.x - camx)-2, Math.floor(h.y - camy)-6);
   // banner
   bx.fillStyle = 'rgba(0,0,0,0.55)'; bx.fillRect(0, 0, W, 24);
-  txt('ORION SYSTEM', W/2, 4, 8, EGA.yellow, 'center', EGA.brown);
+  let won = true; for (const f of m.forts) if (f && !f.secret && !m.done[f.li]) { won = false; break; }
+  txt(won ? 'SYSTEM SECURED *' : 'ORION SYSTEM', W/2, 4, 8, won ? EGA.bgreen : EGA.yellow, 'center', EGA.brown);
   if (m.nearFort >= 0) {
     const f = m.forts[m.nearFort], locked = !f.secret && f.order > m.maxUnlocked;
     txt((f.secret ? 'SECRET: ' : '') + f.name.toUpperCase(), W/2, 15, 7, locked?EGA.lgray:(f.secret?EGA.bmagenta:EGA.white), 'center');
     if (locked) txt('LOCKED - CLEAR EARLIER FORTS', W/2, H-30, 7, EGA.bred, 'center', EGA.black);
     else if (Math.floor(t*2)%2===0) txt('JUMP / ENTER = PLAY', W/2, H-30, 7, EGA.bcyan, 'center', EGA.black);
   } else {
-    txt('EXPLORE - SECRETS HIDDEN IN THE TREES', W/2, 15, 6, EGA.bgreen, 'center');
+    txt(won ? 'ALL FORTS CLEARED - HUNT SECRETS & STARS' : 'EXPLORE - SECRETS HIDDEN IN THE TREES', W/2, 15, 6, EGA.bgreen, 'center');
   }
   // mini hud
   txt('SCORE '+String(Game.score).padStart(6,'0'), 4, H-11, 7, EGA.yellow, 'left', EGA.black);
