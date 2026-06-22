@@ -924,6 +924,7 @@ function buildLevels() {
     m.plat(48,8,4); m.put(49,7,'o'); m.put(50,7,'o'); m.put(51,7,'G');
     m.put(54,10,'o'); m.put(55,10,'o');
     m.put(cols-2,10,'D');
+    m.secret = true;                 // hidden bonus — found by exploring the overworld
     L.push(m);
   }
 
@@ -967,6 +968,28 @@ function buildLevels() {
     m.put(7,10,'a'); m.put(22,10,'a'); m.put(14,4,'a'); m.put(19,10,'a'); m.put(16,10,'a'); m.put(25,10,'a');  // ammo refills (shoot the boss!)
     m.put(6,6,'o'); m.put(23,6,'o'); m.put(10,10,'h');
     m.put(13,3,'Z');                                        // the boss (no exit door — beat it to win)
+    L.push(m);
+  }
+
+  /* ---- Level 13: Hidden Grotto (SECRET bonus - crystal vault of gems) ---- */
+  {
+    const cols = 64;
+    const m = makeLevel(cols, 'cavern', 'Hidden Grotto', 'You found a secret! Loot the vault.');
+    m.ground(0, cols-1, 11);
+    m.put(2,10,'P');
+    for (let c=4;c<=22;c++) if (c%2===0) m.put(c,10,'o');
+    m.plat(6,8,3); m.put(6,7,'o'); m.put(7,7,'G'); m.put(8,7,'o');
+    m.plat(12,6,3); m.put(12,5,'o'); m.put(13,5,'o'); m.put(14,5,'G');
+    m.put(16,10,'h'); m.block(19,9,1,2); m.put(19,8,'G');
+    m.put(26,10,'f');                                       // one harmless-ish flyer
+    m.plat(24,7,4); m.put(24,6,'o'); m.put(25,6,'G'); m.put(26,6,'o'); m.put(27,6,'G');
+    for (let c=30;c<=46;c++) if (c%2===0) m.put(c,10,'o');
+    m.plat(32,8,3); m.put(33,7,'G'); m.plat(38,6,4); m.put(39,5,'G'); m.put(40,5,'o'); m.put(41,5,'G');
+    m.put(44,10,'h'); m.put(48,10,'a');
+    m.plat(50,7,5); m.put(51,6,'G'); m.put(52,6,'o'); m.put(53,6,'G'); m.put(54,6,'o');
+    m.put(58,10,'o'); m.put(59,10,'o'); m.put(60,10,'G');
+    m.put(cols-2,10,'D');
+    m.secret = true;
     L.push(m);
   }
 
@@ -1088,47 +1111,67 @@ function enterLevelCard() { Game.state = 'levelcard'; Game.timer = 1.8; }
 /* ---- Overworld map: walk between level nodes, enter to play ---- */
 /* ---- Overworld: a walkable top-down island. Grass/path = walkable;
        water/tree/rock = blocked. Walk onto a fort + press JUMP/ENTER to play it. ---- */
-const MAP_WALK = ch => ch === '.' || ch === 'p' || ch === 'F';
+const MAP_WALK = ch => ch === '.' || ch === 'p' || ch === 'F' || ch === 'S';  // S = secret fort
 function buildWorldMap() {
-  const MW = 42, MH = 13, n = Game.levels.length;
+  const MW = 48, MH = 26;                         // big 2D island — scrolls in both axes
   let s = 1337;                                   // deterministic seed -> same island each run
   const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
   const grid = [];
   for (let r = 0; r < MH; r++) { const row = []; for (let c = 0; c < MW; c++) row.push('.'); grid.push(row); }
-  for (let c = 0; c < MW; c++) { grid[0][c] = '~'; grid[MH-1][c] = '~'; }   // water frame
-  for (let r = 0; r < MH; r++) { grid[r][0] = '~'; grid[r][MW-1] = '~'; }
-  for (let c = 1; c < MW-1; c++) { if (rnd() < 0.45) grid[1][c] = '~'; if (rnd() < 0.45) grid[MH-2][c] = '~'; } // ragged coast
-  // forts along a weaving line through the middle band
-  const forts = [], margin = 3;
-  for (let i = 0; i < n; i++) {
-    const fc = Math.round(margin + (n > 1 ? i/(n-1) : 0.5) * (MW-1 - 2*margin));
-    const fr = Math.round(MH/2 + Math.sin(i * 1.1) * 2.2);
-    forts.push({ c: fc, r: fr, name: Game.levels[i].name, theme: Game.levels[i].theme });
-    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {   // grass clearing
-      const rr = fr+dr, cc = fc+dc;
-      if (rr > 0 && rr < MH-1 && cc > 0 && cc < MW-1) grid[rr][cc] = '.';
-    }
-    grid[fr][fc] = 'F';
+  for (let c = 0; c < MW; c++) { grid[0][c]=grid[1][c]='~'; grid[MH-1][c]=grid[MH-2][c]='~'; }   // ocean frame
+  for (let r = 0; r < MH; r++) { grid[r][0]=grid[r][1]='~'; grid[r][MW-1]=grid[r][MW-2]='~'; }
+  const lake = (cx, cy, rad) => { for (let r=cy-rad;r<=cy+rad;r++) for (let c=cx-rad;c<=cx+rad;c++)
+    if ((c-cx)*(c-cx)+(r-cy)*(r-cy) <= rad*rad && r>1 && r<MH-2 && c>1 && c<MW-2) grid[r][c]='~'; };
+  lake(11,7,3); lake(37,18,3); lake(24,5,2); lake(15,20,2); lake(40,9,2);   // inland lakes
+  // forts: main (progression) on a serpentine path; secret in hidden coves
+  const main = [], secret = [];
+  Game.levels.forEach((lvl, i) => (lvl.secret ? secret : main).push(i));
+  const forts = new Array(Game.levels.length);
+  const margin = 4;
+  main.forEach((li, k) => {
+    const t = main.length > 1 ? k/(main.length-1) : 0.5;
+    const fc = Math.round(margin + t * (MW-1 - 2*margin));
+    const fr = clamp(Math.round(MH/2 + Math.sin(t * Math.PI * 2.6) * (MH/2 - 5)), 3, MH-4);
+    forts[li] = { c:fc, r:fr, li, name:Game.levels[li].name, theme:Game.levels[li].theme, secret:false, order:k };
+  });
+  const coves = [[MW-4,3],[3,MH-4],[MW-5,MH-5],[3,3]];
+  secret.forEach((li, k) => { const [fc,fr] = coves[k % coves.length];
+    forts[li] = { c:fc, r:fr, li, name:Game.levels[li].name, theme:Game.levels[li].theme, secret:true, order:-1 }; });
+  forts.forEach(f => {                            // grass clearing + the fort tile
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) { const rr=f.r+dr,cc=f.c+dc;
+      if (rr>1 && rr<MH-2 && cc>1 && cc<MW-2) grid[rr][cc]='.'; }
+    grid[f.r][f.c] = f.secret ? 'S' : 'F';
+  });
+  for (let k = 0; k < main.length-1; k++) {       // dirt path between consecutive main forts
+    let a=forts[main[k]], b=forts[main[k+1]], c=a.c, r=a.r;
+    while (c!==b.c || r!==b.r) { if (grid[r][c]==='.') grid[r][c]='p';
+      if (c!==b.c) c += Math.sign(b.c-c); else r += Math.sign(b.r-r); }
   }
-  for (let i = 0; i < n-1; i++) {                  // carve a dirt path between forts
-    let c = forts[i].c, r = forts[i].r;
-    while (c !== forts[i+1].c || r !== forts[i+1].r) {
-      if (grid[r][c] === '.') grid[r][c] = 'p';
-      if (c !== forts[i+1].c) c += Math.sign(forts[i+1].c - c);
-      else r += Math.sign(forts[i+1].r - r);
-    }
-  }
-  for (let k = 0; k < 46; k++) {                   // scatter trees/rocks on open grass
-    const c = 1 + ((rnd()*(MW-2))|0), r = 2 + ((rnd()*(MH-4))|0);
+  for (let k = 0; k < 140; k++) {                 // forests/rocks on open grass (don't wall forts)
+    const c = 2+((rnd()*(MW-4))|0), r = 2+((rnd()*(MH-4))|0);
     if (grid[r][c] !== '.') continue;
-    let nearFort = false;
-    for (const f of forts) if (Math.abs(f.c-c) <= 1 && Math.abs(f.r-r) <= 1) nearFort = true;
+    let nearFort=false; for (const f of forts) if (Math.abs(f.c-c)<=1 && Math.abs(f.r-r)<=1) nearFort=true;
     if (!nearFort) grid[r][c] = rnd() < 0.6 ? 'T' : 'R';
   }
+  // hidden collectibles tucked in nooks (biased toward the forests)
+  const pickups = [], kinds = ['gem','gem','life','gem','ammo','gem','life','gem','gem','ammo'];
+  let placed=0, tries=0;
+  while (placed < kinds.length && tries++ < 600) {
+    const c = 2+((rnd()*(MW-4))|0), r = 2+((rnd()*(MH-4))|0);
+    if (grid[r][c] !== '.') continue;
+    let nearFort=false; for (const f of forts) if (Math.abs(f.c-c)<=2 && Math.abs(f.r-r)<=2) nearFort=true;
+    if (nearFort) continue;
+    let nearTree=false; for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++){ const t=grid[r+dr]&&grid[r+dr][c+dc]; if (t==='T'||t==='R') nearTree=true; }
+    if (!nearTree && rnd() < 0.55) continue;      // prefer hidden-by-trees spots
+    pickups.push({ c, r, x:c*16+2, y:r*16+2, w:12, h:12, kind:kinds[placed], taken:false });
+    placed++;
+  }
+  const start = forts[main[0]];
   Game.map = {
-    MW, MH, grid, forts, t: 0, cur: 0, maxUnlocked: 0, done: forts.map(() => false), nearFort: 0,
-    hero: { x: forts[0].c*16 + 2, y: forts[0].r*16 + 2, w: 12, h: 12, dir: 1, anim: 0 },
-    cam: { x: 0, y: 0 },
+    MW, MH, grid, forts, pickups, t:0, cur:main[0], maxUnlocked:0, nearFort:main[0],
+    done: Game.levels.map(() => false), secretsTotal: pickups.length, secretsFound: 0,
+    hero: { x: start.c*16+2, y: start.r*16+2, w:12, h:12, dir:1, anim:0 },
+    cam: { x:0, y:0 },
   };
   syncMapCam();
 }
@@ -1152,10 +1195,10 @@ function enterMapLevel() {
 function updateWorldMap(dt) {
   const m = Game.map, h = m.hero; m.t += dt;
   const walk = (c, r) => MAP_WALK((r < 0 || r >= m.MH || c < 0 || c >= m.MW) ? '~' : m.grid[r][c]);
-  const SP = 66;
+  const SP = 70;
   let vx = (held.right?1:0) - (held.left?1:0), vy = (held.down?1:0) - (held.up?1:0);
   if (vx) h.dir = vx > 0 ? 1 : -1;
-  if (vx) {                                        // move X, blocked by non-walkable tiles
+  if (vx) {
     const nx = h.x + vx*SP*dt, edge = Math.floor((vx > 0 ? nx + h.w : nx)/16);
     if (walk(edge, Math.floor(h.y/16)) && walk(edge, Math.floor((h.y+h.h-1)/16))) h.x = nx;
   }
@@ -1164,12 +1207,25 @@ function updateWorldMap(dt) {
     if (walk(Math.floor(h.x/16), edge) && walk(Math.floor((h.x+h.w-1)/16), edge)) h.y = ny;
   }
   if (vx || vy) h.anim += dt * 8;
+  // collect hidden map pickups
+  for (const pk of m.pickups) {
+    if (pk.taken) continue;
+    if (h.x < pk.x+pk.w && h.x+h.w > pk.x && h.y < pk.y+pk.h && h.y+h.h > pk.y) {
+      pk.taken = true; m.secretsFound++;
+      if (pk.kind === 'life') { Game.lives++; SFX.life(); }
+      else if (pk.kind === 'ammo') { Game.ammo += 5; SFX.pickup(); }
+      else { Game.score += 250; SFX.biggem(); }
+    }
+  }
   const hc = Math.floor((h.x+h.w/2)/16), hr = Math.floor((h.y+h.h/2)/16);
   m.nearFort = m.forts.findIndex(f => f.c === hc && f.r === hr);
   syncMapCam();
   if (pressed.jump || pressed.start) {
-    if (m.nearFort >= 0 && m.nearFort <= m.maxUnlocked) { m.cur = m.nearFort; enterMapLevel(); }
-    else if (m.nearFort >= 0) SFX.bump();          // locked fort
+    if (m.nearFort >= 0) {
+      const f = m.forts[m.nearFort];
+      if (f.secret || f.order <= m.maxUnlocked) { m.cur = m.nearFort; enterMapLevel(); }
+      else SFX.bump();                            // locked main fort
+    }
   }
 }
 function respawn() {
@@ -1861,8 +1917,18 @@ function drawMapTile(ch, sx, sy, c, r, t) {
     bx.fillStyle = EGA.dgray; bx.fillRect(sx+2, sy+13, 12, 1);
   }
 }
-function drawFort(f, i, sx, sy, t, m) {
-  const locked = i > m.maxUnlocked, done = m.done[i];
+function drawFort(f, sx, sy, t, m) {
+  const done = m.done[f.li];
+  if (f.secret) {                                                                  // hidden cave/grotto
+    bx.fillStyle = EGA.brown; bx.fillRect(sx-3, sy+7, 22, 9);                       // mound
+    bx.fillStyle = done ? EGA.bgreen : EGA.dgray; bx.fillRect(sx-1, sy-2, 18, 12);
+    bx.fillStyle = EGA.bgreen; bx.fillRect(sx-1, sy-2, 18, 2);
+    bx.fillStyle = EGA.black; bx.fillRect(sx+5, sy+2, 6, 8);                        // cave mouth
+    if (done) { bx.fillStyle = EGA.white; bx.fillRect(sx+6, sy+3, 4, 4); }          // checkmark
+    else txt('?', sx+8, sy-2, 8, (Math.sin(t*5) > 0) ? EGA.yellow : EGA.bmagenta, 'center', EGA.black);
+    return;
+  }
+  const locked = f.order > m.maxUnlocked;
   bx.fillStyle = done ? EGA.green : EGA.brown; bx.fillRect(sx-3, sy+8, 22, 8);     // base
   bx.fillStyle = locked ? EGA.dgray : (done ? EGA.bgreen : EGA.lgray);             // tower
   bx.fillRect(sx, sy-3, 16, 13);
@@ -1873,7 +1939,7 @@ function drawFort(f, i, sx, sy, t, m) {
   if (done) { bx.fillStyle = EGA.white; bx.fillRect(sx+6, sy-1, 4, 4); }            // checkmark
   else if (locked) { bx.fillStyle = EGA.black; bx.fillRect(sx+5, sy-1, 6, 5); bx.fillStyle = EGA.yellow; bx.fillRect(sx+7, sy+1, 2, 2); } // padlock
   else { bx.fillStyle = (Math.sin(t*6) > 0) ? EGA.bred : EGA.yellow; bx.fillRect(sx+8, sy-13, 2, 7); bx.fillRect(sx+10, sy-13, 5, 3); }   // flag
-  txt(String(i+1), sx+8, sy+12, 6, locked ? EGA.dgray : EGA.white, 'center', EGA.black);
+  txt(String(f.order+1), sx+8, sy+12, 6, locked ? EGA.dgray : EGA.white, 'center', EGA.black);
 }
 function drawWorldMap() {
   const m = Game.map, t = m.t, camx = Math.floor(m.cam.x), camy = Math.floor(m.cam.y);
@@ -1882,10 +1948,20 @@ function drawWorldMap() {
   const r0 = Math.max(0, Math.floor(camy/16)), r1 = Math.min(m.MH-1, Math.floor((camy+H)/16)+1);
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++)
     drawMapTile(m.grid[r][c], c*16 - camx, r*16 - camy, c, r, t);
+  // hidden map collectibles
+  for (const pk of m.pickups) {
+    if (pk.taken) continue;
+    const sx = Math.floor(pk.x - camx), sy = Math.floor(pk.y - camy);
+    if (sx < -16 || sx > W || sy < -16 || sy > H) continue;
+    const spr = pk.kind === 'life' ? SPR.life : pk.kind === 'ammo' ? SPR.ammo : SPR.biggem;
+    const bob = Math.sin(t*4 + pk.c) * 2;
+    bx.drawImage(spr, sx + (16-spr.width)/2, sy - 2 + bob + (16-spr.height)/2);
+    if (Math.sin(t*6 + pk.r) > 0.5) { bx.fillStyle = EGA.white; bx.fillRect(sx+8, sy-2+bob, 1, 1); }  // glint
+  }
   for (let i = 0; i < m.forts.length; i++) {
     const f = m.forts[i];
-    if (f.c < c0-1 || f.c > c1+1) continue;
-    drawFort(f, i, f.c*16 - camx, f.r*16 - camy, t, m);
+    if (f.c < c0-1 || f.c > c1+1 || f.r < r0-2 || f.r > r1+1) continue;
+    drawFort(f, f.c*16 - camx, f.r*16 - camy, t, m);
   }
   // hero (walk-bob)
   const h = m.hero, moving = held.left||held.right||held.up||held.down;
@@ -1895,15 +1971,16 @@ function drawWorldMap() {
   bx.fillStyle = 'rgba(0,0,0,0.55)'; bx.fillRect(0, 0, W, 24);
   txt('ORION SYSTEM', W/2, 4, 8, EGA.yellow, 'center', EGA.brown);
   if (m.nearFort >= 0) {
-    const locked = m.nearFort > m.maxUnlocked;
-    txt(m.forts[m.nearFort].name.toUpperCase(), W/2, 15, 7, locked?EGA.lgray:EGA.white, 'center');
+    const f = m.forts[m.nearFort], locked = !f.secret && f.order > m.maxUnlocked;
+    txt((f.secret ? 'SECRET: ' : '') + f.name.toUpperCase(), W/2, 15, 7, locked?EGA.lgray:(f.secret?EGA.bmagenta:EGA.white), 'center');
     if (locked) txt('LOCKED - CLEAR EARLIER FORTS', W/2, H-30, 7, EGA.bred, 'center', EGA.black);
     else if (Math.floor(t*2)%2===0) txt('JUMP / ENTER = PLAY', W/2, H-30, 7, EGA.bcyan, 'center', EGA.black);
   } else {
-    txt('WALK TO A FORT', W/2, 15, 7, EGA.bgreen, 'center');
+    txt('EXPLORE - SECRETS HIDDEN IN THE TREES', W/2, 15, 6, EGA.bgreen, 'center');
   }
   // mini hud
   txt('SCORE '+String(Game.score).padStart(6,'0'), 4, H-11, 7, EGA.yellow, 'left', EGA.black);
+  txt('SECRETS ' + m.secretsFound + '/' + m.secretsTotal, W/2, H-11, 6, EGA.bmagenta, 'center', EGA.black);
   bx.drawImage(SPR.life, W-58, H-13, 11, 11);
   txt('x'+Game.lives, W-44, H-11, 7, EGA.white, 'left', EGA.black);
 }
@@ -2010,15 +2087,12 @@ function update(dt) {
       Game.timer -= dt;
       updateParticles(dt);
       if (Game.timer <= 0 || pressed.start) {
-        const m = Game.map;
+        const m = Game.map, f = m.forts[Game.levelIndex];
         m.done[Game.levelIndex] = true;
-        if (m.done.every(Boolean)) { Game.state = 'victory'; Game.timer = 0; saveHigh(); }
-        else {
-          const next = Math.min(Game.levels.length - 1, Game.levelIndex + 1);
-          m.maxUnlocked = Math.max(m.maxUnlocked, next);
-          placeHeroOnNode(next);
-          Game.state = 'worldmap';
-        }
+        if (f && !f.secret) m.maxUnlocked = Math.max(m.maxUnlocked, f.order + 1);  // unlock next main fort
+        const won = m.forts.filter(x => x && !x.secret).every(x => m.done[x.li]);   // secrets are optional
+        if (won) { Game.state = 'victory'; Game.timer = 0; saveHigh(); }
+        else { placeHeroOnNode(Game.levelIndex); Game.state = 'worldmap'; }          // back to the fort just cleared
       }
       break;
     case 'gameover':
