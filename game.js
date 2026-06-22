@@ -72,7 +72,7 @@ const KEYMAP = {
   KeyX:['pogo'], ShiftLeft:['pogo'], ShiftRight:['pogo'], KeyK:['pogo'],
   KeyP:['pause'], Escape:['pause'],
   Enter:['start'], NumpadEnter:['start'],
-  KeyM:['music'], KeyN:['mute'], KeyF:['fullscreen'],
+  KeyM:['music'], KeyN:['mute'], KeyF:['fullscreen'], KeyO:['options'], KeyQ:['quit'],
 };
 const held = {};
 const pressed = {};
@@ -142,6 +142,13 @@ function bindTouch() {
       held[b.act] = on;
       b.el.classList.toggle('on', on);
     }
+    // On menus / overworld the JUMP button = confirm/enter and POGO = back, so touch can
+    // operate Settings, enter forts, and exit pause (none of which the D-pad can do otherwise).
+    const st = Game.state;
+    if (st === 'title' || st === 'settings' || st === 'worldmap' || st === 'pause') {
+      if (pressed.jump) pressed.start = true;
+      if (pressed.pogo && (st === 'settings' || st === 'pause')) pressed.pause = true;
+    }
     ensureAudio();
   };
   const handler = e => { e.preventDefault(); refresh(e.touches); };
@@ -152,15 +159,16 @@ function bindTouch() {
   // start & advance them). In play/worldmap/pause the pad's own buttons handle input — a stray
   // tap there must NOT fire Start (which would re-enter a fort / unpause). Audio unlock stays
   // outside the guard so the first tap in any state enables sound.
-  const MENU = { title:1, levelcard:1, gameover:1, victory:1 };
+  const MENU = { title:1, levelcard:1, gameover:1, victory:1, intro:1, credits:1 };
   const tapStart = () => { ensureAudio(); if (MENU[Game.state]) { pressed.start = true; goFullscreenOnce(); } };
   canvas.addEventListener('touchstart', tapStart, { passive: true });
   canvas.addEventListener('mousedown', tapStart);
 }
-// Show the on-screen pad only when it's actually useful (gameplay/map/pause); menus use tap-to-start.
+// Show the on-screen pad where input is needed: gameplay, map, pause, and the navigable menus.
+const PAD_STATES = { play:1, worldmap:1, pause:1, title:1, settings:1 };
 function updateTouchVisibility() {
   if (!isTouch || !touchEl) return;
-  const want = (Game.state === 'play' || Game.state === 'worldmap' || Game.state === 'pause') ? 'flex' : 'none';
+  const want = PAD_STATES[Game.state] ? 'flex' : 'none';
   if (touchEl._vis !== want) { touchEl.style.display = want; touchEl._vis = want; }
 }
 
@@ -168,9 +176,18 @@ function updateTouchVisibility() {
 let actx = null, master = null, musicGain = null, sfxGain = null;
 let audioReady = false;
 let soundOn = true, musicOn = true, muted = false;    // music autoplays once audio unlocks; N = master mute
+let musicVol = 0.5, sfxVol = 0.9;                     // 0..1, adjustable in Options + persisted
 const MASTER_VOL = 0.6;
 
 function applyMute() { if (master) master.gain.value = muted ? 0 : MASTER_VOL; }
+function applyVolumes() { if (musicGain) musicGain.gain.value = musicVol; if (sfxGain) sfxGain.gain.value = sfxVol; }
+function loadSettings() {
+  try { const s = JSON.parse(localStorage.getItem('cosmo_settings') || 'null');
+    if (s) { if (typeof s.music === 'number') musicVol = clamp(s.music, 0, 1);
+      if (typeof s.sfx === 'number') sfxVol = clamp(s.sfx, 0, 1);
+      if (typeof s.musicOn === 'boolean') musicOn = s.musicOn; } } catch(e){}
+}
+function saveSettings() { try { localStorage.setItem('cosmo_settings', JSON.stringify({ music: musicVol, sfx: sfxVol, musicOn })); } catch(e){} }
 // Suspend/resume the whole context (used on pause + tab-away) so nothing keeps
 // playing when the game isn't in front.
 function setAudioActive(active) {
@@ -184,8 +201,8 @@ function ensureAudio() {
   try {
     actx = new (window.AudioContext || window.webkitAudioContext)();
     master = actx.createGain(); master.gain.value = muted ? 0 : MASTER_VOL; master.connect(actx.destination);
-    musicGain = actx.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
-    sfxGain = actx.createGain(); sfxGain.gain.value = 0.9; sfxGain.connect(master);
+    musicGain = actx.createGain(); musicGain.gain.value = musicVol; musicGain.connect(master);
+    sfxGain = actx.createGain(); sfxGain.gain.value = sfxVol; sfxGain.connect(master);
     audioReady = true;
     if (actx.state === 'suspended') actx.resume();   // unlock within the user gesture (mobile)
     Music.start();
@@ -1026,6 +1043,46 @@ function buildLevels() {
     L.push(m);
   }
 
+  /* ---- Level 14: Sky Vault (SECRET bonus - a forest canopy gem-climb) ---- */
+  {
+    const cols = 62;
+    const m = makeLevel(cols, 'forest', 'Sky Vault', 'A secret in the canopy!');
+    m.ground(0, cols-1, 11);
+    m.put(2,10,'P');
+    for (let c=4;c<=18;c++) if (c%2===0) m.put(c,10,'o');
+    m.plat(6,9,3); m.put(7,8,'o'); m.plat(10,7,3); m.put(11,6,'G'); m.plat(14,5,3); m.put(15,4,'G');
+    m.put(20,10,'h'); m.put(24,10,'j');
+    m.plat(22,8,3); m.put(23,7,'G'); m.plat(27,6,4); m.put(28,5,'o'); m.put(29,5,'G'); m.put(30,5,'o');
+    for (let c=33;c<=46;c++) if (c%2===0) m.put(c,10,'o');
+    m.plat(35,8,3); m.put(36,7,'G'); m.plat(40,6,3); m.put(41,5,'G'); m.plat(44,5,3); m.put(45,4,'G');
+    m.put(48,10,'h'); m.put(50,10,'a');
+    m.plat(52,8,4); m.put(53,7,'G'); m.put(54,7,'o'); m.put(55,7,'G');
+    m.put(58,10,'o'); m.put(59,10,'G');
+    m.put(cols-2,10,'D');
+    m.secret = true;
+    L.push(m);
+  }
+
+  /* ---- Level 15: Buried Cache (SECRET bonus - a fortress treasure dig) ---- */
+  {
+    const cols = 60;
+    const m = makeLevel(cols, 'fortress', 'Buried Cache', 'A hidden stash - mind the spikes.');
+    m.ground(0, cols-1, 11);
+    m.put(2,10,'P');
+    for (let c=4;c<=16;c++) if (c%2===0) m.put(c,10,'o');
+    m.block(8,9,1,2); m.put(8,8,'G'); m.plat(12,7,4); m.put(13,6,'G'); m.put(14,6,'o'); m.put(15,6,'G');
+    m.spikes(18,10,2); m.put(22,10,'b');
+    m.plat(20,8,3); m.put(21,7,'G');
+    for (let c=25;c<=40;c++) if (c%2===0) m.put(c,10,'o');
+    m.block(27,9,1,2); m.put(27,8,'G'); m.plat(31,7,4); m.put(32,6,'G'); m.put(33,6,'o'); m.put(34,6,'G');
+    m.spikes(37,10,2); m.put(42,10,'h'); m.put(44,10,'a');
+    m.plat(46,8,4); m.put(47,7,'G'); m.put(48,7,'o'); m.put(49,7,'G');
+    m.put(53,10,'o'); m.put(54,10,'o'); m.put(55,10,'G');
+    m.put(cols-2,10,'D');
+    m.secret = true;
+    L.push(m);
+  }
+
   return L;
 }
 
@@ -1112,24 +1169,28 @@ function saveHigh() {
   }
 }
 /* ---- Run/level progress persistence (one flat blob) ---- */
+function saveVer() { return Game.levels.length + ':' + Game.levels.filter(l => l.secret).length; }
 function loadProgress() { try { Game.save = JSON.parse(localStorage.getItem('cosmo_save') || 'null'); } catch(e){ Game.save = null; } }
 function saveProgress() {
   const m = Game.map; if (!m) return;
-  const blob = { maxUnlocked:m.maxUnlocked, done:m.done.slice(), grades:(m.grades||[]).slice(),
-    score:Game.score, lives:Game.lives, secretsFound:m.secretsFound, taken:m.pickups.map(p => !!p.taken) };
+  const blob = { ver: saveVer(), maxUnlocked:m.maxUnlocked, done:m.done.slice(), grades:(m.grades||[]).slice(),
+    score:Game.score, lives:Game.lives, secretsFound:m.secretsFound,
+    takenKeys: m.pickups.filter(p => p.taken).map(p => p.c + ',' + p.r) };   // identity (cell), not array index
   try { localStorage.setItem('cosmo_save', JSON.stringify(blob)); Game.save = blob; } catch(e){}
 }
 function clearProgress() { try { localStorage.removeItem('cosmo_save'); } catch(e){} Game.save = null; }
-function hasSave() { return !!(Game.save && (Game.save.maxUnlocked > 0 || (Game.save.done && Game.save.done.some(Boolean)))); }
+function saveUsable() { return !!(Game.save && Game.save.ver === saveVer()); }   // ignore saves from a different level set
+function hasSave() { const s = Game.save; return !!(saveUsable() && (s.maxUnlocked > 0 || (s.done && s.done.some(Boolean)) || s.secretsFound > 0 || (s.takenKeys && s.takenKeys.length))); }
+function titleOptions() { return hasSave() ? ['continue', 'new', 'options'] : ['start', 'options']; }
 function continueGame() {
   Game.lives = START_LIVES; Game.hearts = MAX_HEARTS; Game.ammo = START_AMMO; Game.score = 0;
   buildWorldMap();
   const s = Game.save, m = Game.map;
-  if (s) {
+  if (s && saveUsable()) {
     m.maxUnlocked = s.maxUnlocked | 0;
     if (s.done) for (let i = 0; i < m.done.length && i < s.done.length; i++) m.done[i] = s.done[i];
     if (s.grades) for (let i = 0; i < m.grades.length && i < s.grades.length; i++) m.grades[i] = s.grades[i];
-    if (s.taken) for (let i = 0; i < m.pickups.length && i < s.taken.length; i++) if (s.taken[i]) m.pickups[i].taken = true;
+    if (s.takenKeys) { const tk = new Set(s.takenKeys); for (const p of m.pickups) if (tk.has(p.c + ',' + p.r)) p.taken = true; }
     m.secretsFound = m.pickups.reduce((n, p) => n + (p.taken ? 1 : 0), 0);
     Game.score = s.score | 0; Game.lives = (s.lives | 0) || START_LIVES;
     const mains = m.forts.filter(f => !f.secret).length;
@@ -1312,7 +1373,7 @@ function updateWorldMap(dt) {
   const hc = Math.floor((h.x+h.w/2)/16), hr = Math.floor((h.y+h.h/2)/16);
   m.nearFort = m.forts.findIndex(f => f.c === hc && f.r === hr);
   syncMapCam();
-  if (pressed.jump || pressed.start) {
+  if (pressed.start) {                            // confirm only (NOT jump — Up doubles as jump and would auto-enter)
     if (m.nearFort >= 0) {
       const f = m.forts[m.nearFort];
       if (f.secret || f.order <= m.maxUnlocked) { m.cur = m.nearFort; enterMapLevel(); }
@@ -1423,9 +1484,17 @@ function ridePlatforms(e) {
     const overX = e.x + e.w > pf.x + 1 && e.x < pf.x + pf.w - 1;
     const feet = e.y + e.h;
     if (e.vy >= 0 && overX && feet >= pf.y - 1 && feet <= pf.y + 9) {
-      e.y = pf.y - e.h; e.vy = 0; e.onGround = true;
-      e.x += pf.dx;                                  // carried horizontally
-      if (pf.dx !== 0) { moveX(e); }                 // re-resolve against walls after the carry
+      // vertical carry — but don't snap the rider up through a solid ceiling
+      const ny = pf.y - e.h, headR = Math.floor(ny / 16);
+      let ceil = false;
+      for (let c = Math.floor(e.x/16); c <= Math.floor((e.x+e.w-1)/16); c++) if (isSolid(tileAt(c, headR))) ceil = true;
+      e.y = ceil ? (headR + 1) * 16 : ny; e.vy = 0; e.onGround = true;
+      // horizontal carry — clamp against walls WITHOUT re-integrating run velocity (no double-move)
+      if (pf.dx !== 0) {
+        const nx = e.x + pf.dx, top = Math.floor(e.y/16), bot = Math.floor((e.y+e.h-1)/16);
+        if (pf.dx > 0) { const c = Math.floor((nx+e.w-1)/16); let hit=false; for (let r=top;r<=bot;r++) if (isSolid(tileAt(c,r))) hit=true; e.x = hit ? c*16 - e.w : nx; }
+        else          { const c = Math.floor(nx/16);         let hit=false; for (let r=top;r<=bot;r++) if (isSolid(tileAt(c,r))) hit=true; e.x = hit ? (c+1)*16 : nx; }
+      }
     }
   }
 }
@@ -1559,6 +1628,7 @@ function updatePlay(dt) {
   compact(Game.shots, s => s.life > 0);
 
   // ---- enemies ----
+  const spawnBuf = [];                       // boss adds, flushed after the loop (no mutate-during-iteration)
   for (const e of Game.enemies) {
     if (e.dead) { e.dyTimer -= dt; continue; }
     e.anim += dt * 6;
@@ -1590,7 +1660,7 @@ function updatePlay(dt) {
         if (e.addTimer <= 0) {
           e.addTimer = 4.5;
           let adds = 0; for (const x of Game.enemies) if (x.bossAdd && !x.dead) adds++;
-          if (adds < 2) { const fl = makeEnemy('flyer', Math.floor((e.x+e.w/2)/16), 4); fl.homing = true; fl.bossAdd = true; Game.enemies.push(fl); }
+          if (adds < 2) { const fl = makeEnemy('flyer', Math.floor((e.x+e.w/2)/16), 4); fl.homing = true; fl.bossAdd = true; spawnBuf.push(fl); }
         }
       }
     } else if (e.fly) {
@@ -1640,13 +1710,24 @@ function updatePlay(dt) {
         SFX.shoot();
       }
     } else if (e.bounce) {
-      // invincible bouncing hazard — perpetual bounce, reflects off walls, must be dodged
+      // invincible bouncing hazard — perpetual bounce, reflects off walls, turns at ledges (never self-destructs in a pit)
       e.vy += GRAV * dt; if (e.vy > MAX_FALL) e.vy = MAX_FALL;
       e.vx = e.dir * e.speed;
       moveX(e);
       if (e.hitWall) e.dir *= -1;
       moveY(e);
-      if (e.onGround) e.vy = -e.bounceVel;
+      if (e.onGround) {
+        // predict where this bounce arc lands; reverse BEFORE leaping if it would land in a pit
+        // (the arc overshoots a narrow pit, so an at-landing ledge check is too late)
+        const air = 2 * e.bounceVel / GRAV;                       // time to return to launch height
+        const landX = e.x + e.dir * e.speed * air;
+        const landC = e.dir > 0 ? Math.floor((landX + e.w) / 16) : Math.floor(landX / 16);
+        const footR = Math.floor((e.y + e.h + 1) / 16);
+        let grounded = false;
+        for (let r = footR; r <= footR + 4; r++) if (isSolid(tileAt(landC, r))) { grounded = true; break; }
+        if (!grounded) e.dir *= -1;                               // landing column has no floor -> turn back
+        e.vy = -e.bounceVel;
+      }
     } else {
       // ground walker; "charge" types speed up + steer toward a nearby same-height player
       e.vy += GRAV * dt; if (e.vy > MAX_FALL) e.vy = MAX_FALL;
@@ -1680,6 +1761,7 @@ function updatePlay(dt) {
     // player collision
     if (!e.dead && p.invuln <= 0 && aabb(p, e)) hurtPlayer(e);
   }
+  for (const s of spawnBuf) Game.enemies.push(s);   // flush boss adds (they act starting next frame)
   compact(Game.enemies, e => !(e.dead && e.dyTimer <= 0));
 
   // ---- enemy projectiles (turret = horizontal, boss = spread w/ vy) ----
@@ -1735,6 +1817,7 @@ function defeatBoss(e) {
   for (let i = 0; i < 6; i++)
     spawnBurst(e.x + Math.random()*e.w, e.y + Math.random()*e.h, [EGA.yellow,EGA.bred,EGA.white,EGA.bcyan][i%4], 14, 150);
   Game.shake = 16; Game.flash = 1; Game.eshots = [];
+  for (const x of Game.enemies) if (x.bossAdd) { x.dead = true; x.dyTimer = 0.4; }   // clear summoned adds
   SFX.win();
   levelClear();         // boss is in the final level -> level-clear cascades to victory
 }
@@ -2026,17 +2109,70 @@ function drawTitle() {
   bx.fillStyle = C.gunD; bx.fillRect(W/2-1, by+18, 2, 8);
 
   const blink = Math.floor(t*2) % 2 === 0;
-  if (hasSave()) {
-    const sel = Game.menuSel;
-    txt((sel===0?'> ':'  ') + 'CONTINUE', W/2, 146, 8, sel===0?EGA.yellow:EGA.lgray, 'center', EGA.black);
-    txt((sel===1?'> ':'  ') + 'NEW GAME', W/2, 160, 8, sel===1?EGA.yellow:EGA.lgray, 'center', EGA.black);
-    if (blink) txt('UP/DOWN  +  ENTER / TAP', W/2, 176, 6, EGA.bcyan, 'center');
-  } else {
-    if (blink) txt('PRESS ENTER TO START', W/2, 150, 8, EGA.white, 'center', EGA.black);
-    txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 174, 7, EGA.bcyan, 'center');
-  }
-  txt('A/D MOVE   Z SHOOT   X POGO   SPACE JUMP', W/2, 188, 6, EGA.lgray, 'center');
-  txt('M MUSIC   N MUTE   F FULLSCREEN', W/2, 198, 6, EGA.lgray, 'center');
+  const opts = titleOptions(), labels = { continue:'CONTINUE', new:'NEW GAME', start:'START', options:'OPTIONS' };
+  const y0 = 142;
+  opts.forEach((o, i) => {
+    const on = i === Game.menuSel;
+    const confirming = on && o === 'new' && Game.confirmNew;
+    txt((on ? '> ' : '  ') + (confirming ? 'ERASE? AGAIN' : labels[o]), W/2, y0 + i*14, 8, confirming ? EGA.bred : on ? EGA.yellow : EGA.lgray, 'center', EGA.black);
+  });
+  if (blink) txt('UP/DOWN  +  ENTER / TAP', W/2, y0 + opts.length*14 + 2, 6, EGA.bcyan, 'center');
+  txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 198, 6, EGA.bcyan, 'center');
+}
+
+function drawIntro() {
+  drawBackdrop();
+  bx.fillStyle = 'rgba(0,0,0,0.78)'; bx.fillRect(0, 0, W, H);
+  txt('THE BRIEFING', W/2, 22, 10, EGA.yellow, 'center', EGA.brown);
+  const lines = [
+    'The Overseer has seized the Orion system,',
+    'caging its worlds behind iron forts and',
+    'flooding them with its machine swarm.',
+    '',
+    'You are COMMANDER COSMO. Pack your raygun,',
+    'mount your pogo, and clear every fort -',
+    'then bring the Overseer down.',
+  ];
+  lines.forEach((s, i) => txt(s, W/2, 56 + i*15, 6, i === 0 || i >= 4 ? EGA.white : EGA.bgreen, 'center'));
+  if (Math.floor(Game.timer*2) % 2 === 0) txt('PRESS ENTER / TAP TO BEGIN', W/2, H-22, 7, EGA.bcyan, 'center', EGA.black);
+}
+
+function drawCredits() {
+  bx.fillStyle = EGA.black; bx.fillRect(0, 0, W, H);
+  drawBackdrop(); bx.fillStyle = 'rgba(0,0,0,0.6)'; bx.fillRect(0, 0, W, H);
+  const lines = [
+    '~ COMMANDER COSMO ~', 'GALACTIC POGO PATROL', '',
+    'THE ORION SYSTEM IS FREE', '',
+    'DESIGN & CODE ... you & Claude',
+    'ART & MUSIC ..... generated in code',
+    'ENGINE .......... HTML5 canvas',
+    '', 'AN ORIGINAL HOMAGE TO THE', 'CLASSIC EGA PLATFORMERS', '',
+    'FINAL SCORE  ' + String(Game.score).padStart(6,'0'),
+    'THANKS FOR PLAYING!',
+  ];
+  const scroll = H - Math.floor(Game.timer * 22);     // slow upward roll
+  lines.forEach((s, i) => { const y = scroll + i*16; if (y > -10 && y < H)
+    txt(s, W/2, y, i === 0 ? 9 : 6, i === 0 ? EGA.yellow : i === 12 ? EGA.bcyan : EGA.bgreen, 'center', EGA.black); });
+  if (Math.floor(Game.timer*2) % 2 === 0) txt('PRESS ENTER / TAP', W/2, H-12, 6, EGA.lgray, 'center', EGA.black);
+}
+
+function drawSettings() {
+  drawBackdrop(); bx.fillStyle = 'rgba(0,0,0,0.8)'; bx.fillRect(0, 0, W, H);
+  txt('OPTIONS', W/2, 28, 14, EGA.yellow, 'center', EGA.brown);
+  const bar = (y, label, v, on) => {
+    txt(label, W/2 - 60, y, 7, on ? EGA.yellow : EGA.lgray, 'left');
+    const bx0 = W/2 + 8, bw = 60;
+    bx.fillStyle = EGA.dgray; bx.fillRect(bx0, y, bw, 6);
+    bx.fillStyle = on ? EGA.bgreen : EGA.green; bx.fillRect(bx0, y, Math.round(bw * v), 6);
+    if (on) { bx.fillStyle = EGA.bcyan; bx.fillRect(bx0-6, y, 3, 6); bx.fillRect(bx0+bw+3, y, 3, 6); }  // < > arrows
+  };
+  bar(70,  'MUSIC VOL', musicVol, Game.setSel === 0);
+  bar(92,  'SFX VOL',   sfxVol,   Game.setSel === 1);
+  txt('MUSIC', W/2 - 60, 114, 7, Game.setSel === 2 ? EGA.yellow : EGA.lgray, 'left');
+  txt(musicOn ? 'ON' : 'OFF', W/2 + 8, 114, 7, musicOn ? EGA.bgreen : EGA.bred, 'left');
+  txt((Game.setSel === 3 ? '> ' : '  ') + 'BACK', W/2, 140, 8, Game.setSel === 3 ? EGA.yellow : EGA.lgray, 'center');
+  txt('UP/DOWN SELECT   LEFT/RIGHT ADJUST', W/2, 166, 6, EGA.lgray, 'center');
+  txt('ENTER CONFIRM   ESC BACK', W/2, 176, 6, EGA.lgray, 'center');
 }
 
 function drawMapTile(ch, sx, sy, c, r, t) {
@@ -2147,11 +2283,11 @@ function drawLevelCard() {
 function drawPause() {
   drawBackdrop(); drawWorld(); drawHUD();
   bx.fillStyle = 'rgba(0,0,0,0.72)'; bx.fillRect(0, 0, W, H);
-  txt('PAUSED', W/2, 70, 16, EGA.yellow, 'center', EGA.brown);
-  txt('ENTER / P  RESUME', W/2, 100, 7, EGA.white, 'center');
-  txt('M  MUSIC: ' + (musicOn?'ON':'OFF'), W/2, 116, 7, EGA.lgray, 'center');
-  txt('N  SOUND: ' + (muted?'OFF':'ON'), W/2, 130, 7, EGA.lgray, 'center');
-  txt('ESC  QUIT TO TITLE', W/2, 146, 7, EGA.lgray, 'center');
+  txt('PAUSED', W/2, 62, 16, EGA.yellow, 'center', EGA.brown);
+  txt('P / ESC  RESUME', W/2, 94, 7, EGA.white, 'center');
+  txt('O  OPTIONS', W/2, 110, 7, EGA.lgray, 'center');
+  txt('M  MUSIC: ' + (musicOn?'ON':'OFF') + '   N  ' + (muted?'UNMUTE':'MUTE'), W/2, 126, 6, EGA.lgray, 'center');
+  txt('Q  QUIT TO TITLE', W/2, 142, 7, EGA.lgray, 'center');
 }
 
 function drawDead() {
@@ -2206,9 +2342,7 @@ function drawVictory() {
   txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 160, 7, EGA.bcyan, 'center');
   const blink = Math.floor(t*2) % 2 === 0;
   if (blink) txt('PRESS ENTER', W/2, 182, 7, EGA.white, 'center');
-  // confetti
-  if (Math.random() < 0.4) Game.particles.push({ x:Math.random()*W, y:-2, vx:(Math.random()*2-1)*20, vy:40+Math.random()*40, life:3, color:[EGA.yellow,EGA.bred,EGA.bcyan,EGA.bgreen][Math.random()*4|0], size:2, grav:30 });
-  updateParticles(1/60);
+  // confetti (spawned + advanced in update() at fixed dt; here we only render)
   for (const pt of Game.particles) { bx.globalAlpha = clamp(pt.life,0,1); bx.fillStyle = pt.color; bx.fillRect(Math.floor(pt.x), Math.floor(pt.y), pt.size, pt.size); }
   bx.globalAlpha = 1;
 }
@@ -2216,13 +2350,51 @@ function drawVictory() {
 /* --------------------------- STATE STEP ---------------------------- */
 function update(dt) {
   switch (Game.state) {
-    case 'title':
+    case 'title': {
       Game.timer += dt;
-      if (hasSave()) {
-        if (pressed.up || pressed.down) { Game.menuSel = Game.menuSel ? 0 : 1; SFX.select(); }
-        if (pressed.start) { ensureAudio(); SFX.select(); if (Game.menuSel === 0) continueGame(); else { clearProgress(); startGame(); } }
-      } else if (pressed.start) { ensureAudio(); startGame(); SFX.select(); }
+      const opts = titleOptions();                       // ['continue','new','options'] or ['start','options']
+      if (Game.menuSel >= opts.length) Game.menuSel = 0;
+      if (pressed.up)   { Game.menuSel = (Game.menuSel + opts.length - 1) % opts.length; Game.confirmNew = false; SFX.select(); }
+      if (pressed.down) { Game.menuSel = (Game.menuSel + 1) % opts.length; Game.confirmNew = false; SFX.select(); }
+      if (pressed.start) {                                // confirm = Enter / tap (not jump, to avoid Up=jump clash)
+        ensureAudio(); SFX.select();
+        const pick = opts[Game.menuSel];
+        if (pick === 'continue') continueGame();
+        else if (pick === 'options') { Game.settingsReturn = 'title'; Game.setSel = 0; Game.state = 'settings'; }
+        else if (pick === 'new') {                        // NEW GAME wipes the save — require a confirm tap
+          if (Game.confirmNew) { Game.confirmNew = false; clearProgress(); Game.state = 'intro'; Game.timer = 0; }
+          else Game.confirmNew = true;
+        } else { clearProgress(); Game.state = 'intro'; Game.timer = 0; }   // start (no save)
+      }
       break;
+    }
+    case 'intro':
+      Game.timer += dt;
+      if (pressed.start && Game.timer > 0.3) { ensureAudio(); startGame(); SFX.select(); }
+      break;
+    case 'settings': {
+      const N = 4;                                        // [music vol, sfx vol, music on/off, back]
+      if (pressed.up)   { Game.setSel = (Game.setSel + N - 1) % N; SFX.select(); }
+      if (pressed.down) { Game.setSel = (Game.setSel + 1) % N; SFX.select(); }
+      const sel = Game.setSel, dir = (held.right?1:0) - (held.left?1:0);   // hold to ramp (works for keys + touch)
+      if ((sel === 0 || sel === 1) && dir) {
+        const fresh = pressed.left || pressed.right;
+        Game.adjT = fresh ? 0 : (Game.adjT || 0) - dt;
+        if (fresh || Game.adjT <= 0) {
+          Game.adjT = fresh ? 0.32 : 0.09;                                  // initial delay, then repeat
+          if (sel === 0) musicVol = clamp(Math.round((musicVol + dir*0.1)*10)/10, 0, 1);
+          else            sfxVol  = clamp(Math.round((sfxVol  + dir*0.1)*10)/10, 0, 1);
+          applyVolumes(); saveSettings(); SFX.pickup();
+        }
+      } else Game.adjT = 0;
+      if (pressed.start) {
+        if (sel === 2) { musicOn = !musicOn; Music.setEnabled(musicOn); saveSettings(); SFX.select(); }
+        else if (sel === 3) { Game.state = Game.settingsReturn || 'title'; SFX.select(); }
+        else SFX.select();
+      }
+      if (pressed.pause || pressed.options) { Game.state = Game.settingsReturn || 'title'; SFX.select(); }
+      break;
+    }
     case 'worldmap':
       updateWorldMap(dt);
       break;
@@ -2235,8 +2407,10 @@ function update(dt) {
       updatePlay(dt);
       break;
     case 'pause':
+      if (pressed.options) { Game.settingsReturn = 'pause'; Game.setSel = 0; Game.state = 'settings'; SFX.select(); break; }
+      if (pressed.quit) { Game.state = 'title'; Game.timer = 0; Game.menuSel = 0; saveHigh(); setAudioActive(true); SFX.select(); break; }
       if (pressed.pause || pressed.start) { Game.state = 'play'; setAudioActive(true); SFX.select(); }
-      // ESC quits to title (handled by the keydown listener below)
+      // P/ESC resume; Q quits to title
       break;
     case 'dead':
       Game.timer -= dt;
@@ -2266,11 +2440,17 @@ function update(dt) {
       break;
     case 'gameover':
       Game.timer += dt;
-      if (pressed.start) { Game.state = 'title'; Game.timer = 0; }
+      if (pressed.start && Game.timer > 0.5) { Game.state = 'title'; Game.timer = 0; Game.menuSel = 0; }  // guard a stray entry-frame press
       break;
     case 'victory':
       Game.timer += dt;
-      if (pressed.start) { Game.state = 'title'; Game.timer = 0; Game.particles = []; }
+      if (Math.random() < dt * 24) Game.particles.push({ x:Math.random()*W, y:-2, vx:(Math.random()*2-1)*20, vy:40+Math.random()*40, life:3, color:[EGA.yellow,EGA.bred,EGA.bcyan,EGA.bgreen][Math.random()*4|0], size:2, grav:30 });
+      updateParticles(dt);   // fixed-step, refresh-rate independent
+      if (pressed.start && Game.timer > 0.5) { Game.state = 'credits'; Game.timer = 0; Game.particles = []; }
+      break;
+    case 'credits':
+      Game.timer += dt;
+      if (pressed.start && Game.timer > 1) { Game.state = 'title'; Game.timer = 0; Game.menuSel = 0; }
       break;
   }
   // global audio controls (apply in every state, once per press)
@@ -2288,6 +2468,9 @@ function render() {
   }
   switch (Game.state) {
     case 'title': drawTitle(); break;
+    case 'intro': drawIntro(); break;
+    case 'settings': drawSettings(); break;
+    case 'credits': drawCredits(); break;
     case 'worldmap': drawWorldMap(); break;
     case 'levelcard': drawLevelCard(); break;
     case 'play': drawBackdrop(); drawWorld(); drawHUD(); drawVignette(); break;
@@ -2304,13 +2487,6 @@ function render() {
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(buf, view.x, view.y, view.w, view.h);
 }
-
-/* ESC-to-title handling in pause needs a dedicated check (escape maps to pause) */
-window.addEventListener('keydown', e => {
-  if (Game.state === 'pause' && e.code === 'Escape') {
-    Game.state = 'title'; Game.timer = 0; saveHigh(); setAudioActive(true);
-  }
-});
 
 /* Stop all audio when the tab/window is hidden; resume when it returns. */
 document.addEventListener('visibilitychange', () => {
@@ -2339,6 +2515,7 @@ function boot() {
   bakeAll();
   loadHigh();
   loadProgress();
+  loadSettings();
   Game.levels = buildLevels();
   validateLevels();
   bindTouch();
