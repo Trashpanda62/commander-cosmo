@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64" shape-rendering="crispEdges">
+  <rect width="64" height="64" fill="#0000AA"/>
+  <rect x="4" y="4" width="56" height="56" fill="#5555FF"/>
+  <!-- helmet -->
+  <rect x="20" y="10" width="24" height="6" fill="#55FF55"/>
+  <rect x="16" y="16" width="32" height="10" fill="#55FF55"/>
+  <rect x="16" y="16" width="32" height="3" fill="#FFFFFF"/>
+  <rect x="16" y="24" width="32" height="2" fill="#00AA00"/>
+  <!-- face -->
+  <rect x="22" y="26" width="20" height="10" fill="#AAAAAA"/>
+  <rect x="22" y="34" width="20" height="2" fill="#555555"/>
+  <rect x="26" y="28" width="6" height="6" fill="#000000"/>
+  <!-- raygun glint -->
+  <rect x="44" y="30" width="8" height="4" fill="#FFFF55"/>
+  <!-- shirt -->
+  <rect x="18" y="38" width="28" height="14" fill="#FF5555"/>
+  <rect x="18" y="50" width="28" height="2" fill="#AA0000"/>
+  <!-- pants -->
+  <rect x="20" y="52" width="10" height="6" fill="#0000AA"/>
+  <rect x="34" y="52" width="10" height="6" fill="#0000AA"/>
+</svg>

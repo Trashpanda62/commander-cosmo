@@ -298,6 +298,14 @@ const Music = (function () {
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 const aabb = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// In-place compaction: keep elements where keep(e) is truthy, mutate + truncate the SAME array
+// (no per-frame allocation). Returns the array.
+function compact(arr, keep) {
+  let w = 0;
+  for (let i = 0; i < arr.length; i++) if (keep(arr[i])) arr[w++] = arr[i];
+  arr.length = w;
+  return arr;
+}
 
 /* ------------------------ SPRITE BAKING ---------------------------- */
 /* Each sprite is procedurally drawn into a 16x16 (or taller) offscreen
@@ -563,10 +571,11 @@ function makeBackdrop(theme) {
 }
 
 /* --------------------------- LEVELS -------------------------------- */
-/* Built with a small DSL to guarantee aligned, valid maps.
-   Chars in grid: ' ' air, '#' ground, 'B' block, 'T' one-way platform,
-   '^' spikes, 'D' door, 'o' gem, 'G' big gem, 'a' ammo, 'h' 1-up,
-   'y' yorp, 'b' bloog, 'f' flyer, 'P' start. */
+/* Built with a small DSL to guarantee aligned, valid maps. Grid chars:
+   ' ' air · '#' ground · 'B' block · 'T' one-way platform · '^' spikes · 'L' lava
+   '<'/'>' conveyor · 'm'/'v' moving platform (horiz/vert) · 'C' checkpoint · 'D' exit door
+   'o' gem · 'G' big gem · 'a' ammo · 'h' 1-up · 'P' start
+   enemies: 'y' yorp · 'b' bloog · 'f' flyer · 'F' homing flyer · 'j' hopper · 'u' turret · 'X' bouncer · 'Z' boss */
 function makeLevel(cols, theme, name, hint) {
   const g = [];
   for (let r = 0; r < ROWS; r++) g.push(new Array(cols).fill(' '));
@@ -580,7 +589,6 @@ function makeLevel(cols, theme, name, hint) {
     lava(c, r, len) { for (let i=0;i<len;i++) set(c+i,r,'L'); return this; },               // lethal floor (sits on ground)
     conv(c, r, len, dir) { const ch = dir>0?'>':'<'; for (let i=0;i<len;i++) set(c+i,r,ch); return this; }, // conveyor belt
     put(c, r, ch) { set(c,r,ch); return this; },
-    row(arr) { return this; },
   };
 }
 
@@ -596,11 +604,14 @@ function decorate(m, c0, c1, theme, seed) {
     ice:['y','b','f','j'], forest:['j','b','F','j'], lava:['b','u','j','b'], factory:['b','u','X','F'],
   })[theme] || ['y','b','f'];
   const pick = () => pool[(rnd()*pool.length)|0];
+  m.put(c0, 10, 'C');                        // mid-level checkpoint at the start of the tail
+  const tailEnd = c1 - 18;                   // reserve the last stretch for a hand-authored finale
   let c = c0 + 2;
-  while (c < c1 - 4) {
+  while (c < tailEnd) {
+    const prog = (c - c0) / Math.max(1, tailEnd - c0);   // difficulty ramps toward the finale
     const roll = rnd();
-    if (roll < 0.26) {                       // pit (2-3 wide)
-      const w = rnd() < 0.4 ? 3 : 2;
+    if (roll < 0.22 + prog * 0.14) {         // pits get more common toward the end (still <= 3 wide)
+      const w = rnd() < (0.35 + prog * 0.25) ? 3 : 2;
       for (let i = 0; i < w; i++) { m.set(c+i, 11, ' '); m.set(c+i, 12, ' '); }
       c += w + 3;
     } else if (roll < 0.48) {                // floating platform + gem (+ maybe an enemy below)
@@ -619,6 +630,28 @@ function decorate(m, c0, c1, theme, seed) {
       if (rnd() < 0.5) m.put(c+2, 10, rnd() < 0.3 ? 'a' : 'o');
       c += 4 + ((rnd()*3)|0);
     }
+  }
+  finale(m, theme, c1);                      // signature, theme-specific run-up to the exit
+}
+
+// A hand-authored ~16-col climax ending just before the door (placed at doorC by the caller).
+// Ground already spans this range; pits stay <= 2 and hazards sit on solid ground.
+function finale(m, theme, doorC) {
+  const c = doorC - 17;
+  if (theme === 'lava') {                    // rising-lava gauntlet
+    m.lava(c+2, 10, 2); m.plat(c+5, 8, 3); m.put(c+6, 7, 'G');
+    m.lava(c+9, 10, 2); m.put(c+12, 10, 'u'); m.put(c+14, 10, 'o');
+  } else if (theme === 'factory') {          // conveyor + turret + bouncer run
+    m.conv(c+1, 11, 5, 1); m.put(c+3, 10, 'u'); m.put(c+8, 10, 'X');
+    m.plat(c+10, 8, 3); m.put(c+11, 7, 'G'); m.put(c+14, 10, 'a');
+  } else if (theme === 'ice' || theme === 'cavern') {  // chasm leaps over the void
+    for (let i = 0; i < 2; i++) { const pc = c + 3 + i*6;
+      m.set(pc,11,' '); m.set(pc,12,' '); m.set(pc+1,11,' '); m.set(pc+1,12,' ');
+      m.plat(pc-1, 7, 3); m.put(pc, 6, 'G'); }
+    m.put(c+14, 10, theme === 'ice' ? 'b' : 'F');
+  } else {                                   // surface / forest / fortress — platform ascent
+    m.plat(c+2, 8, 3); m.put(c+3, 7, 'o'); m.plat(c+6, 6, 3); m.put(c+7, 5, 'G');
+    m.put(c+10, 10, 'b'); m.spikes(c+13, 10, 2);
   }
 }
 
@@ -996,6 +1029,28 @@ function buildLevels() {
   return L;
 }
 
+// Build-time invariant checks — logs (does not throw) so bad authoring is caught during dev.
+function validateLevels() {
+  const solid = ch => ch === '#' || ch === 'B' || ch === '<' || ch === '>';
+  Game.levels.forEach((lvl, li) => {
+    const g = lvl.g, cols = lvl.cols, at = (c, r) => (r < 0 || r >= ROWS || c < 0 || c >= cols) ? ' ' : g[r][c];
+    const warn = msg => console.warn('[level ' + li + ' "' + lvl.name + '"] ' + msg);
+    let starts = 0, doors = 0, boss = 0;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < cols; c++) {
+      const ch = g[r][c];
+      if (ch === 'P') starts++;
+      if (ch === 'Z') boss++;
+      if (ch === 'D') { doors++;
+        if (at(c, r-1) !== ' ') warn('cell above exit door not empty at ' + c + ',' + (r-1));
+        if (!solid(at(c, r+1))) warn('no ground beneath exit door at col ' + c); }
+      if ((ch === '^' || ch === 'L') && !solid(at(c, r+1)) && at(c, r+1) !== '^' && at(c, r+1) !== 'L')
+        warn('floating hazard "' + ch + '" at ' + c + ',' + r);
+    }
+    if (starts !== 1) warn('expected exactly 1 player start, found ' + starts);
+    if (doors === 0 && boss === 0) warn('no exit (neither a D door nor a Z boss)');
+  });
+}
+
 /* --------------------------- ENTITIES ------------------------------ */
 function makeEnemy(type, c, r) {
   const base = { type, dead:false, dyTimer:0, anim:0, dir: -1, sc:c, sr:r };
@@ -1044,7 +1099,7 @@ const Game = {
   score: 0, gems: 0, gemsTotal: 0, levelScore: 0,
   timer: 0, flash: 0, shake: 0,
   menuSel: 0,
-  highScore: 0,
+  highScore: 0, save: null,
 };
 
 function loadHigh() {
@@ -1056,6 +1111,33 @@ function saveHigh() {
     try { localStorage.setItem('cosmo_high', String(Game.highScore)); } catch(e){}
   }
 }
+/* ---- Run/level progress persistence (one flat blob) ---- */
+function loadProgress() { try { Game.save = JSON.parse(localStorage.getItem('cosmo_save') || 'null'); } catch(e){ Game.save = null; } }
+function saveProgress() {
+  const m = Game.map; if (!m) return;
+  const blob = { maxUnlocked:m.maxUnlocked, done:m.done.slice(), grades:(m.grades||[]).slice(),
+    score:Game.score, lives:Game.lives, secretsFound:m.secretsFound, taken:m.pickups.map(p => !!p.taken) };
+  try { localStorage.setItem('cosmo_save', JSON.stringify(blob)); Game.save = blob; } catch(e){}
+}
+function clearProgress() { try { localStorage.removeItem('cosmo_save'); } catch(e){} Game.save = null; }
+function hasSave() { return !!(Game.save && (Game.save.maxUnlocked > 0 || (Game.save.done && Game.save.done.some(Boolean)))); }
+function continueGame() {
+  Game.lives = START_LIVES; Game.hearts = MAX_HEARTS; Game.ammo = START_AMMO; Game.score = 0;
+  buildWorldMap();
+  const s = Game.save, m = Game.map;
+  if (s) {
+    m.maxUnlocked = s.maxUnlocked | 0;
+    if (s.done) for (let i = 0; i < m.done.length && i < s.done.length; i++) m.done[i] = s.done[i];
+    if (s.grades) for (let i = 0; i < m.grades.length && i < s.grades.length; i++) m.grades[i] = s.grades[i];
+    if (s.taken) for (let i = 0; i < m.pickups.length && i < s.taken.length; i++) if (s.taken[i]) m.pickups[i].taken = true;
+    m.secretsFound = m.pickups.reduce((n, p) => n + (p.taken ? 1 : 0), 0);
+    Game.score = s.score | 0; Game.lives = (s.lives | 0) || START_LIVES;
+    const mains = m.forts.filter(f => !f.secret).length;
+    const target = m.forts.find(f => !f.secret && f.order === Math.min(m.maxUnlocked, mains - 1));
+    if (target) placeHeroOnNode(target.li);
+  }
+  Game.state = 'worldmap';
+}
 
 function newPlayer(start) {
   return {
@@ -1063,7 +1145,7 @@ function newPlayer(start) {
     vx: 0, vy: 0, dir: 1,
     onGround: false, coyote: 0, jumpBuf: 0, jumping: false,
     pogo: false, anim: 0, shootCool: 0, shootHold: 0,
-    invuln: 0, state: 'stand',
+    invuln: 0, hazImmune: 0, state: 'stand',
   };
 }
 
@@ -1075,6 +1157,7 @@ function loadLevel(idx) {
   Game.eshots = []; Game.platforms = [];
   Game.gems = 0; Game.gemsTotal = 0; Game.levelScore = 0;
   Game.defeated = new Set();   // enemy spawns already cleared this level (persist across respawns)
+  Game.cpTriggered = new Set();// checkpoint cells reached this level ('C' tiles)
   let start = { x: 32, y: 160 };
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < lvl.cols; c++) {
@@ -1128,15 +1211,23 @@ function buildWorldMap() {
   Game.levels.forEach((lvl, i) => (lvl.secret ? secret : main).push(i));
   const forts = new Array(Game.levels.length);
   const margin = 4;
+  const used = new Set();
+  const claim = (c, r) => {                         // nudge to the nearest free cell so forts never overlap
+    c = clamp(c, 3, MW-4); r = clamp(r, 3, MH-4);
+    for (let d = 0; d < 12; d++) for (const [dc, dr] of [[0,0],[0,d],[0,-d],[d,0],[-d,0]]) {
+      const cc = clamp(c+dc, 3, MW-4), rr = clamp(r+dr, 3, MH-4), key = cc+','+rr;
+      if (!used.has(key)) { used.add(key); return { c:cc, r:rr }; }
+    }
+    used.add(c+','+r); return { c, r };
+  };
   main.forEach((li, k) => {
     const t = main.length > 1 ? k/(main.length-1) : 0.5;
-    const fc = Math.round(margin + t * (MW-1 - 2*margin));
-    const fr = clamp(Math.round(MH/2 + Math.sin(t * Math.PI * 2.6) * (MH/2 - 5)), 3, MH-4);
-    forts[li] = { c:fc, r:fr, li, name:Game.levels[li].name, theme:Game.levels[li].theme, secret:false, order:k };
+    const p = claim(Math.round(margin + t * (MW-1 - 2*margin)), Math.round(MH/2 + Math.sin(t * Math.PI * 2.6) * (MH/2 - 5)));
+    forts[li] = { c:p.c, r:p.r, li, name:Game.levels[li].name, theme:Game.levels[li].theme, secret:false, order:k };
   });
   const coves = [[MW-4,3],[3,MH-4],[MW-5,MH-5],[3,3]];
-  secret.forEach((li, k) => { const [fc,fr] = coves[k % coves.length];
-    forts[li] = { c:fc, r:fr, li, name:Game.levels[li].name, theme:Game.levels[li].theme, secret:true, order:-1 }; });
+  secret.forEach((li, k) => { const p = claim(coves[k % coves.length][0], coves[k % coves.length][1]);
+    forts[li] = { c:p.c, r:p.r, li, name:Game.levels[li].name, theme:Game.levels[li].theme, secret:true, order:-1 }; });
   forts.forEach(f => {                            // grass clearing + the fort tile
     for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) { const rr=f.r+dr,cc=f.c+dc;
       if (rr>1 && rr<MH-2 && cc>1 && cc<MW-2) grid[rr][cc]='.'; }
@@ -1169,7 +1260,7 @@ function buildWorldMap() {
   const start = forts[main[0]];
   Game.map = {
     MW, MH, grid, forts, pickups, t:0, cur:main[0], maxUnlocked:0, nearFort:main[0],
-    done: Game.levels.map(() => false), secretsTotal: pickups.length, secretsFound: 0,
+    done: Game.levels.map(() => false), grades: Game.levels.map(() => 0), secretsTotal: pickups.length, secretsFound: 0,
     hero: { x: start.c*16+2, y: start.r*16+2, w:12, h:12, dir:1, anim:0 },
     cam: { x:0, y:0 },
   };
@@ -1187,6 +1278,7 @@ function placeHeroOnNode(i) {
   syncMapCam();
 }
 function enterMapLevel() {
+  saveProgress();                 // persist overworld exploration (found secrets) before entering
   Game.levelIndex = Game.map.cur;
   loadLevel(Game.levelIndex);
   enterLevelCard();
@@ -1347,6 +1439,7 @@ function applyConveyor(e, dt) {
 
 /* --------------------------- PARTICLES ----------------------------- */
 function spawnBurst(x, y, color, n, spd) {
+  n = Math.min(n, Math.max(0, 280 - Game.particles.length));   // cap total live particles
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, s = (0.4 + Math.random()) * (spd || 90);
     Game.particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s - 30, life: 0.5+Math.random()*0.4,
@@ -1392,6 +1485,7 @@ function updatePlay(dt) {
   if (pressed.jump) p.jumpBuf = JUMP_BUF; else p.jumpBuf = Math.max(0, p.jumpBuf - dt);
   p.shootCool = Math.max(0, p.shootCool - dt);
   if (p.invuln > 0) p.invuln -= dt;
+  if (p.hazImmune > 0) p.hazImmune -= dt;
 
   const wasGround = p.onGround;
 
@@ -1434,8 +1528,15 @@ function updatePlay(dt) {
   }
   if (p.shootHold > 0) p.shootHold -= dt;
 
-  // ---- hazards / fall death ----
-  if (touchingHazard(p) || p.y > ROWS*16 + 24) { killPlayer(); return; }
+  // ---- checkpoint ----
+  { const cc = Math.floor((p.x+p.w/2)/16), cr = Math.floor((p.y+p.h/2)/16);
+    if (tileAt(cc, cr) === 'C' && !Game.cpTriggered.has(cc+','+cr)) {
+      Game.cpTriggered.add(cc+','+cr);
+      Game.startPos = { x: cc*16, y: cr*16 };       // respawn here instead of the level start
+      spawnBurst(cc*16+8, cr*16+4, EGA.bcyan, 10, 80); SFX.select();
+    } }
+  // ---- hazards / fall death (i-frames + brief post-hit grace don't save you from a pit) ----
+  if ((touchingHazard(p) && p.hazImmune <= 0) || p.y > ROWS*16 + 24) { killPlayer(); return; }
 
   // ---- player anim state ----
   if (!p.onGround) p.state = p.pogo ? 'pogo' : 'jump';
@@ -1454,25 +1555,42 @@ function updatePlay(dt) {
     const c = Math.floor((s.dir>0 ? s.x+s.w : s.x)/16), r = Math.floor((s.y+s.h/2)/16);
     if (isSolid(tileAt(c, r))) { s.life = 0; spawnBurst(s.x, s.y, THEMES[Game.theme].accent, 4, 60); SFX.bump(); }
   }
-  Game.shots = Game.shots.filter(s => s.life > 0);
+  compact(Game.shots, s => s.life > 0);
 
   // ---- enemies ----
   for (const e of Game.enemies) {
     if (e.dead) { e.dyTimer -= dt; continue; }
     e.anim += dt * 6;
     if (e.boss) {
-      // The Overseer: hovers, tracks the player horizontally, rains a 3-shot spread (faster when hurt)
+      // The Overseer — 3 escalating phases: P1 fixed spread; P2 faster + aimed; P3 fastest + summons adds
       e.t += dt; if (e.flash > 0) e.flash -= dt;
+      const phase = e.hp <= e.maxHp/3 ? 3 : e.hp <= 2*e.maxHp/3 ? 2 : 1;
+      const spd = e.speed * (phase === 3 ? 2.2 : phase === 2 ? 1.6 : 1.0);
       const tx = clamp(p.x + p.w/2 - e.w/2, 32, Game.cols*16 - e.w - 32);
-      e.x += Math.sign(tx - e.x) * Math.min(Math.abs(tx - e.x), e.speed * dt);
+      e.x += Math.sign(tx - e.x) * Math.min(Math.abs(tx - e.x), spd * dt);
       e.dir = (p.x + p.w/2 >= e.x + e.w/2) ? 1 : -1;
-      e.y = e.homeY + Math.sin(e.t * 1.6) * 24;
+      e.y = e.homeY + Math.sin(e.t * (phase === 1 ? 1.6 : 2.4)) * 24;
       e.attackTimer -= dt;
+      if (e.attackTimer < 0.28) e.flash = Math.max(e.flash, 0.12);   // windup telegraph before a volley
       if (e.attackTimer <= 0) {
-        e.attackTimer = e.hp <= e.maxHp/2 ? 1.25 : 1.9;        // enrage at half health
+        e.attackTimer = phase === 3 ? 1.0 : phase === 2 ? 1.35 : 1.9;
         const cx = e.x + e.w/2, cy = e.y + e.h - 2;
-        for (const vx of [-95, 0, 95]) Game.eshots.push({ x:cx-3, y:cy, w:6, h:5, vx, vy:135, life:3.5 });
+        if (phase === 1) {
+          for (const vx of [-95, 0, 95]) Game.eshots.push({ x:cx-3, y:cy, w:6, h:5, vx, vy:135, life:3.5 });
+        } else {                                                     // aimed 3-shot fan toward the player
+          const dx = (p.x + p.w/2) - cx, dy = Math.max(45, p.y - cy), k = 160 / Math.hypot(dx, dy);
+          const ax = dx*k, ay = dy*k;
+          for (const off of [-70, 0, 70]) Game.eshots.push({ x:cx-3, y:cy, w:6, h:5, vx:ax+off, vy:ay, life:3.5 });
+        }
         SFX.shoot();
+      }
+      if (phase === 3) {                                             // summon up to 2 homing flyer adds
+        e.addTimer = (e.addTimer || 0) - dt;
+        if (e.addTimer <= 0) {
+          e.addTimer = 4.5;
+          let adds = 0; for (const x of Game.enemies) if (x.bossAdd && !x.dead) adds++;
+          if (adds < 2) { const fl = makeEnemy('flyer', Math.floor((e.x+e.w/2)/16), 4); fl.homing = true; fl.bossAdd = true; Game.enemies.push(fl); }
+        }
       }
     } else if (e.fly) {
       e.t += dt;
@@ -1561,7 +1679,7 @@ function updatePlay(dt) {
     // player collision
     if (!e.dead && p.invuln <= 0 && aabb(p, e)) hurtPlayer(e);
   }
-  Game.enemies = Game.enemies.filter(e => !(e.dead && e.dyTimer <= 0));
+  compact(Game.enemies, e => !(e.dead && e.dyTimer <= 0));
 
   // ---- enemy projectiles (turret = horizontal, boss = spread w/ vy) ----
   for (const es of Game.eshots) {
@@ -1570,7 +1688,7 @@ function updatePlay(dt) {
     if (isSolid(tileAt(c, r))) { es.life = 0; spawnBurst(es.x, es.y, EGA.bred, 3, 50); }
     else if (p.invuln <= 0 && aabb(p, es)) { es.life = 0; hurtPlayer(es); }
   }
-  Game.eshots = Game.eshots.filter(es => es.life > 0);
+  compact(Game.eshots, es => es.life > 0);
 
   // ---- pickups ----
   for (const k of Game.pickups) {
@@ -1578,7 +1696,7 @@ function updatePlay(dt) {
     k.t += dt;
     if (aabb(p, k)) collect(k);
   }
-  Game.pickups = Game.pickups.filter(k => !k.taken);
+  compact(Game.pickups, k => !k.taken);
 
   // ---- door / level clear ----
   const dc0 = Math.floor((p.x+p.w/2)/16), dr = Math.floor((p.y+p.h/2)/16);
@@ -1597,7 +1715,7 @@ function updateParticles(dt) {
     pt.vy += (pt.grav||0) * dt;
     pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt;
   }
-  Game.particles = Game.particles.filter(pt => pt.life > 0);
+  compact(Game.particles, pt => pt.life > 0);
 }
 
 function defeatEnemy(e) {
@@ -1624,6 +1742,8 @@ function hurtPlayer(e) {
   const p = Game.player;
   Game.hearts--;
   p.invuln = INVULN;
+  p.hazImmune = 0.28;               // brief grace so knockback can't fling you onto spikes/lava
+  p.pogo = false;                   // drop pogo on a hit so a stray toggle can't snowball into death
   p.vx = (p.x < e.x ? -1 : 1) * 150;
   p.vy = -180;
   Game.shake = 6; Game.flash = 0.6;
@@ -1634,6 +1754,7 @@ function hurtPlayer(e) {
 function killPlayer() {
   if (Game.state !== 'play') return;
   Game.lives--;
+  Game.player.pogo = false;
   Game.state = 'dead';
   Game.timer = 1.2;
   Game.shake = 8; Game.flash = 0.8;
@@ -1661,12 +1782,15 @@ function levelClear() {
 }
 
 /* --------------------------- RENDER -------------------------------- */
+const skyGradCache = {};
+function skyGrad(theme) {
+  if (skyGradCache[theme]) return skyGradCache[theme];
+  const t = THEMES[theme], g = bx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, t.sky[0]); g.addColorStop(0.55, t.sky[1]); g.addColorStop(1, t.sky[2]);
+  return (skyGradCache[theme] = g);   // static per theme — built once, not every frame
+}
 function drawBackdrop() {
-  const t = THEMES[Game.theme];
-  // sky gradient
-  const grad = bx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, t.sky[0]); grad.addColorStop(0.55, t.sky[1]); grad.addColorStop(1, t.sky[2]);
-  bx.fillStyle = grad; bx.fillRect(0, 0, W, H);
+  bx.fillStyle = skyGrad(Game.theme); bx.fillRect(0, 0, W, H);
   const bd = makeBackdrop(Game.theme);
   const fx = -(Game.cam.x * 0.2) % W;
   bx.drawImage(bd.far, fx, 0); bx.drawImage(bd.far, fx + W, 0);
@@ -1719,6 +1843,14 @@ function drawTile(ch, sx, sy, c, r) {
     bx.fillStyle = t.accent;
     const off = Math.floor(Game.timer * 20) % 8, d = ch === '>' ? 1 : -1;
     for (let i = -1; i < 3; i++) { const ax = sx + ((i*8 + d*off) & 15); bx.fillRect(ax, sy+6, 4, 4); }
+  } else if (ch === 'C') {
+    // checkpoint flag — green/raised once reached, gray/lowered until then
+    const lit = Game.cpTriggered && Game.cpTriggered.has(c + ',' + r);
+    bx.fillStyle = EGA.dgray; bx.fillRect(sx+7, sy+2, 2, 14);            // pole
+    bx.fillStyle = lit ? EGA.bgreen : EGA.lgray;
+    const fy = lit ? sy+2 : sy+8;                                        // flag rides up when lit
+    bx.fillRect(sx+9, fy, 6, 4); bx.fillRect(sx+9, fy, 1, 4);
+    if (lit && Math.sin(Game.timer*8) > 0) { bx.fillStyle = EGA.white; bx.fillRect(sx+10, fy+1, 1, 1); }
   } else if (ch === 'D') {
     // glowing exit door
     const pulse = 0.5 + 0.5*Math.sin(Game.timer*4);
@@ -1849,6 +1981,12 @@ function drawHUD() {
   // ammo
   bx.drawImage(SPR.ammo, 214, 1, 12, 12);
   txt('x' + Game.ammo, 228, 4, 7, Game.ammo>0?EGA.white:EGA.bred);
+  // pogo indicator (lit while pogo mode is on, so the modal state is never hidden)
+  if (Game.player && Game.player.pogo) {
+    bx.fillStyle = EGA.bgreen; bx.fillRect(250, 2, 26, 11);
+    bx.fillStyle = EGA.green; bx.fillRect(250, 11, 26, 2);
+    txt('POGO', 263, 4, 6, EGA.black, 'center');
+  }
   // gems
   txt(Game.gems + '/' + Game.gemsTotal, W-4, 4, 7, EGA.bcyan, 'right');
   // boss health bar (when a boss is alive on-screen)
@@ -1887,8 +2025,15 @@ function drawTitle() {
   bx.fillStyle = C.gunD; bx.fillRect(W/2-1, by+18, 2, 8);
 
   const blink = Math.floor(t*2) % 2 === 0;
-  if (blink) txt('PRESS ENTER TO START', W/2, 150, 8, EGA.white, 'center', EGA.black);
-  txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 172, 7, EGA.bcyan, 'center');
+  if (hasSave()) {
+    const sel = Game.menuSel;
+    txt((sel===0?'> ':'  ') + 'CONTINUE', W/2, 146, 8, sel===0?EGA.yellow:EGA.lgray, 'center', EGA.black);
+    txt((sel===1?'> ':'  ') + 'NEW GAME', W/2, 160, 8, sel===1?EGA.yellow:EGA.lgray, 'center', EGA.black);
+    if (blink) txt('UP/DOWN  +  ENTER / TAP', W/2, 176, 6, EGA.bcyan, 'center');
+  } else {
+    if (blink) txt('PRESS ENTER TO START', W/2, 150, 8, EGA.white, 'center', EGA.black);
+    txt('HIGH ' + String(Game.highScore).padStart(6,'0'), W/2, 174, 7, EGA.bcyan, 'center');
+  }
   txt('A/D MOVE   Z SHOOT   X POGO   SPACE JUMP', W/2, 188, 6, EGA.lgray, 'center');
   txt('M MUSIC   N MUTE   F FULLSCREEN', W/2, 198, 6, EGA.lgray, 'center');
 }
@@ -1936,7 +2081,11 @@ function drawFort(f, sx, sy, t, m) {
   bx.fillStyle = locked ? EGA.dgray : EGA.lgray;                                   // battlements
   bx.fillRect(sx, sy-6, 4, 4); bx.fillRect(sx+6, sy-6, 4, 4); bx.fillRect(sx+12, sy-6, 4, 4);
   bx.fillStyle = EGA.black; bx.fillRect(sx+6, sy+3, 4, 7);                          // door
-  if (done) { bx.fillStyle = EGA.white; bx.fillRect(sx+6, sy-1, 4, 4); }            // checkmark
+  if (done) {
+    bx.fillStyle = EGA.white; bx.fillRect(sx+6, sy-1, 4, 4);                        // checkmark
+    const g = (m.grades && m.grades[f.li]) || 1;                                    // grade pips above the tower
+    for (let i = 0; i < g; i++) { bx.fillStyle = EGA.yellow; bx.fillRect(sx+3 + i*4, sy-9, 2, 2); }
+  }
   else if (locked) { bx.fillStyle = EGA.black; bx.fillRect(sx+5, sy-1, 6, 5); bx.fillStyle = EGA.yellow; bx.fillRect(sx+7, sy+1, 2, 2); } // padlock
   else { bx.fillStyle = (Math.sin(t*6) > 0) ? EGA.bred : EGA.yellow; bx.fillRect(sx+8, sy-13, 2, 7); bx.fillRect(sx+10, sy-13, 5, 3); }   // flag
   txt(String(f.order+1), sx+8, sy+12, 6, locked ? EGA.dgray : EGA.white, 'center', EGA.black);
@@ -2010,13 +2159,24 @@ function drawDead() {
   txt('LIVES LEFT: ' + Game.lives, W/2, 116, 8, EGA.white, 'center');
 }
 
+// three rank "stars" (plus-shapes), filled up to `grade`
+function drawStars(cx, y, grade) {
+  const sp = 12, x0 = cx - sp;
+  for (let i = 0; i < 3; i++) {
+    const x = x0 + i*sp; bx.fillStyle = i < grade ? EGA.yellow : EGA.dgray;
+    bx.fillRect(x+1, y, 1, 5); bx.fillRect(x-1, y+2, 5, 1);
+    if (i < grade) { bx.fillStyle = EGA.white; bx.fillRect(x+1, y+2, 1, 1); }
+  }
+}
 function drawLevelClear() {
   drawBackdrop(); drawWorld(); drawHUD();
   bx.fillStyle = 'rgba(0,0,0,0.72)'; bx.fillRect(0, 0, W, H);
-  txt('LEVEL CLEAR!', W/2, 60, 14, EGA.bgreen, 'center', EGA.green);
-  txt('GEMS ' + Game.gems + '/' + Game.gemsTotal, W/2, 92, 8, EGA.bcyan, 'center');
-  if (Game.perfect) txt('PERFECT! +1000', W/2, 108, 8, EGA.yellow, 'center');
-  txt('SCORE ' + String(Game.score).padStart(6,'0'), W/2, 128, 8, EGA.white, 'center');
+  txt('LEVEL CLEAR!', W/2, 56, 14, EGA.bgreen, 'center', EGA.green);
+  const grade = (Game.map && Game.map.grades && Game.map.grades[Game.levelIndex]) || 1;
+  drawStars(W/2, 84, grade);
+  txt('GEMS ' + Game.gems + '/' + Game.gemsTotal, W/2, 98, 8, EGA.bcyan, 'center');
+  if (Game.perfect) txt('PERFECT! +1000', W/2, 114, 8, EGA.yellow, 'center');
+  txt('SCORE ' + String(Game.score).padStart(6,'0'), W/2, 132, 8, EGA.white, 'center');
 }
 
 function drawGameOver() {
@@ -2056,7 +2216,10 @@ function update(dt) {
   switch (Game.state) {
     case 'title':
       Game.timer += dt;
-      if (pressed.start) { ensureAudio(); startGame(); SFX.select(); }
+      if (hasSave()) {
+        if (pressed.up || pressed.down) { Game.menuSel = Game.menuSel ? 0 : 1; SFX.select(); }
+        if (pressed.start) { ensureAudio(); SFX.select(); if (Game.menuSel === 0) continueGame(); else { clearProgress(); startGame(); } }
+      } else if (pressed.start) { ensureAudio(); startGame(); SFX.select(); }
       break;
     case 'worldmap':
       updateWorldMap(dt);
@@ -2089,9 +2252,13 @@ function update(dt) {
       if (Game.timer <= 0 || pressed.start) {
         const m = Game.map, f = m.forts[Game.levelIndex];
         m.done[Game.levelIndex] = true;
+        const ratio = Game.gemsTotal > 0 ? Game.gems / Game.gemsTotal : 1;          // grade: 3=perfect,2=>=60%,1=clear
+        const grade = Game.perfect ? 3 : ratio >= 0.6 ? 2 : 1;
+        m.grades[Game.levelIndex] = Math.max(m.grades[Game.levelIndex] || 0, grade);
         if (f && !f.secret) m.maxUnlocked = Math.max(m.maxUnlocked, f.order + 1);  // unlock next main fort
+        saveHigh(); saveProgress();
         const won = m.forts.filter(x => x && !x.secret).every(x => m.done[x.li]);   // secrets are optional
-        if (won) { Game.state = 'victory'; Game.timer = 0; saveHigh(); }
+        if (won) { Game.state = 'victory'; Game.timer = 0; }
         else { placeHeroOnNode(Game.levelIndex); Game.state = 'worldmap'; }          // back to the fort just cleared
       }
       break;
@@ -2154,6 +2321,7 @@ const STEP = 1/60;
 function frame(ts) {
   if (!last) last = ts;
   let dt = (ts - last) / 1000; last = ts;
+  if (!(dt > 0)) dt = STEP;           // guard NaN / zero / negative timestamps
   if (dt > 0.1) dt = 0.1;             // avoid spiral after tab switch
   acc += dt;
   let guard = 0;
@@ -2168,7 +2336,9 @@ function boot() {
   resize();
   bakeAll();
   loadHigh();
+  loadProgress();
   Game.levels = buildLevels();
+  validateLevels();
   bindTouch();
   Game.state = 'title'; Game.timer = 0;
   // hide loading
